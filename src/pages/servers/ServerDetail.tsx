@@ -106,10 +106,11 @@ export default function ServerDetail() {
               <Row label="U 位" value={server.location.uPosition} />
             </InfoCard>
 
-            <InfoCard title="BMC 接入">
+            <InfoCard title="网络接入">
+              <Row label="业务 IP" value={server.bizIp} mono />
               <Row label="BMC IP" value={server.mgmtIp} mono />
-              <Row label="协议" value={server.bmcProtocol.toUpperCase()} />
-              <Row label="用户" value={server.bmcUser} mono />
+              <Row label="BMC 协议" value={server.bmcProtocol.toUpperCase()} />
+              <Row label="BMC 用户" value={server.bmcUser} mono />
             </InfoCard>
 
             <InfoCard title="生命周期">

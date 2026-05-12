@@ -76,6 +76,7 @@ export default function ServerList() {
         s.sn.toLowerCase().includes(kw) ||
         s.assetTag.toLowerCase().includes(kw) ||
         s.mgmtIp.includes(kw) ||
+        s.bizIp.includes(kw) ||
         s.model.toLowerCase().includes(kw) ||
         s.tags.join(",").toLowerCase().includes(kw)
       );
@@ -128,7 +129,7 @@ export default function ServerList() {
           <DataTableToolbar
             search={search}
             onSearchChange={setSearch}
-            placeholder="搜索 主机名 / SN / 资产编号 / IP / 型号 / 标签"
+            placeholder="搜索 主机名 / SN / 资产编号 / 业务 IP / BMC IP / 型号 / 标签"
             filters={
               <>
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -163,7 +164,7 @@ export default function ServerList() {
                 <TableHead>状态</TableHead>
                 <TableHead>厂商 / 型号</TableHead>
                 <TableHead>位置</TableHead>
-                <TableHead>BMC</TableHead>
+                <TableHead>IP 地址</TableHead>
                 <TableHead>规格</TableHead>
                 <TableHead>负责人</TableHead>
                 <TableHead className="text-right">操作</TableHead>
@@ -202,9 +203,15 @@ export default function ServerList() {
                     </div>
                   </TableCell>
                   <TableCell>
-                    <div className="flex flex-col">
-                      <span className="font-mono text-sm">{s.mgmtIp}</span>
-                      <span className="text-[10px] uppercase text-muted-foreground">{s.bmcProtocol}</span>
+                    <div className="flex flex-col gap-0.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-primary">业务</span>
+                        <span className="font-mono text-sm">{s.bizIp}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-muted-foreground">{s.bmcProtocol}</span>
+                        <span className="font-mono text-xs text-muted-foreground">{s.mgmtIp}</span>
+                      </div>
                     </div>
                   </TableCell>
                   <TableCell>

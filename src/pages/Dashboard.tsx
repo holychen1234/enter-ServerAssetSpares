@@ -65,6 +65,22 @@ export default function Dashboard() {
     安全库存: parts.filter((p) => p.category === c).reduce((acc, p) => acc + p.safetyStock, 0),
   }));
 
+  const brandData = Object.entries(
+    servers.reduce<Record<string, number>>((acc, s) => {
+      acc[s.manufacturer] = (acc[s.manufacturer] ?? 0) + 1;
+      return acc;
+    }, {}),
+  )
+    .map(([name, value]) => ({ name, value }))
+    .sort((a, b) => b.value - a.value);
+  const BRAND_COLORS = [
+    "hsl(var(--chart-1))",
+    "hsl(var(--chart-2))",
+    "hsl(var(--chart-3))",
+    "hsl(var(--chart-4))",
+    "hsl(var(--chart-5))",
+  ];
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -80,8 +96,8 @@ export default function Dashboard() {
         <StatCard label="库存预警" value={lowStock} delta="低于安全库存的备件" icon={PackageMinus} tone="danger" />
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card className="lg:col-span-1 shadow-card-soft">
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card className="shadow-card-soft">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">服务器状态分布</CardTitle>
           </CardHeader>
@@ -107,7 +123,40 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card className="lg:col-span-2 shadow-card-soft">
+        <Card className="shadow-card-soft">
+          <CardHeader className="pb-2">
+            <CardTitle className="flex items-center justify-between text-base">
+              <span>服务器品牌分布</span>
+              <span className="text-xs font-normal text-muted-foreground">{brandData.length} 个厂商</span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="h-[260px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={brandData} layout="vertical" margin={{ top: 8, right: 24, left: 8, bottom: 0 }}>
+                <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="3 3" horizontal={false} />
+                <XAxis type="number" allowDecimals={false} tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} />
+                <YAxis type="category" dataKey="name" width={90} tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} />
+                <Tooltip
+                  contentStyle={{
+                    background: "hsl(var(--popover))",
+                    border: "1px solid hsl(var(--border))",
+                    borderRadius: 8,
+                    fontSize: 12,
+                  }}
+                />
+                <Bar dataKey="value" name="数量" radius={[0, 4, 4, 0]}>
+                  {brandData.map((entry, i) => (
+                    <Cell key={entry.name} fill={BRAND_COLORS[i % BRAND_COLORS.length]} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div>
+        <Card className="shadow-card-soft">
           <CardHeader className="pb-2">
             <CardTitle className="text-base">备件库存 vs 安全库存</CardTitle>
           </CardHeader>

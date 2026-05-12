@@ -37,6 +37,7 @@ const schema = z.object({
   rack: z.string().min(1, "必填"),
   uPosition: z.string().min(1, "必填"),
   mgmtIp: z.string().min(1, "必填"),
+  bizIp: z.string().min(1, "必填"),
   bmcProtocol: z.enum(["redfish", "ipmi"]),
   bmcUser: z.string().min(1, "必填"),
   status: z.enum(["online", "offline", "maintenance", "retired"]),
@@ -70,6 +71,7 @@ const EMPTY: ServerFormData = {
   rack: "",
   uPosition: "",
   mgmtIp: "",
+  bizIp: "",
   bmcProtocol: "redfish",
   bmcUser: "admin",
   status: "online",
@@ -103,6 +105,7 @@ export function ServerForm({ open, initial, onClose, onSubmit }: Props) {
           rack: initial.location.rack,
           uPosition: initial.location.uPosition,
           mgmtIp: initial.mgmtIp,
+          bizIp: initial.bizIp,
           bmcProtocol: initial.bmcProtocol,
           bmcUser: initial.bmcUser,
           status: initial.status,
@@ -131,6 +134,7 @@ export function ServerForm({ open, initial, onClose, onSubmit }: Props) {
       diskCount: values.diskCount,
       location: { idc: values.idc, rack: values.rack, uPosition: values.uPosition },
       mgmtIp: values.mgmtIp,
+      bizIp: values.bizIp,
       bmcProtocol: values.bmcProtocol,
       bmcUser: values.bmcUser,
       status: values.status,
@@ -193,6 +197,9 @@ export function ServerForm({ open, initial, onClose, onSubmit }: Props) {
           </Field>
           <Field label="U 位">
             <Input {...form.register("uPosition")} placeholder="U12-U13" />
+          </Field>
+          <Field label="业务 IP" error={form.formState.errors.bizIp?.message}>
+            <Input {...form.register("bizIp")} placeholder="172.16.10.11" />
           </Field>
           <Field label="BMC IP">
             <Input {...form.register("mgmtIp")} placeholder="10.10.20.11" />
