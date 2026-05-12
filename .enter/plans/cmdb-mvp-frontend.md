@@ -322,3 +322,271 @@ reference-backend/
 7. 输出 `reference-backend/` 源码包
 
 每步独立提交，便于你随时回滚或暂停。
+
+---
+
+# Round 3：私有化 Linux 一键部署
+
+## Context（背景）
+
+第二轮已交付 `reference-backend/`（FastAPI + MySQL + Redfish-mock）以及前端走 Enter Cloud 的实际功能版。现在要把**前端 + 后端 + 数据库 + Redfish mock**整体落到一台内网 Linux 机器，要求：
+
+- **一条命令起全栈**：`docker compose up -d --build`
+- **前端走 FastAPI 而不是 Enter Cloud**：构建时通过 `VITE_API_MODE=internal` 切换
+- **不需要 HTTPS**，对内网 HTTP 即可（MVP）
+- **可访问公网**，docker 镜像直接 pull
+- **保留 Enter Cloud 模式**用于平台内继续验证（双轨并存）
+
+---
+
+## 一、前端 API 模式适配（构建时切换）
+
+### 1.1 新增运行环境标记
+
+`src/lib/api/mode.ts`（新建）
+
+```ts
+export const API_MODE: "cloud" | "internal" =
+  (import.meta.env.VITE_API_MODE as "cloud" | "internal") || "cloud";
+export const INTERNAL_API_BASE: string =
+  import.meta.env.VITE_INTERNAL_API_BASE || "/api";
+```
+
+### 1.2 拆分 API 实现
+
+把当前 `src/lib/api/cmdb.ts` 重命名为 `cmdb.cloud.ts`，新增 `cmdb.internal.ts` 调 FastAPI REST，最后 `cmdb.ts` 变成入口：
+
+```ts
+// src/lib/api/cmdb.ts
+import { API_MODE } from "./mode";
+import * as cloud from "./cmdb.cloud";
+import * as internal from "./cmdb.internal";
+const impl = API_MODE === "internal" ? internal : cloud;
+export const {
+  listServers, getServer, createServer, updateServer, deleteServer,
+  getBmcStatus, listParts, getPart, createPart, updatePart, deletePart,
+  listMovements, createMovement, listUsers, updateUser, listAuditLogs,
+  signInWithUsername, signOut, fetchCurrentProfile,
+} = impl;
+```
+
+UI/Hook 全部不动，零改造。
+
+### 1.3 内网版实现 `cmdb.internal.ts`
+
+- 维护一个 `fetch` 包装：自动加 `Authorization: Bearer <token>`、自动 JSON、错误抛 `Error(message)`。
+- token 持久化：`localStorage.setItem('cmdb.token', ...)`；登录成功后写入；`signOut` 清空。
+- `signInWithUsername` → POST `/api/auth/login`，返回 `{access_token, user}`。
+- `fetchCurrentProfile` → GET `/api/auth/me`（如果 token 过期返回 null）。
+- 其他方法逐一映射到 FastAPI 路由（已与 cloud 版同名同形状，FastAPI serializers 已对齐前端类型）。
+- `getBmcStatus(id)` → GET `/api/servers/{id}/bmc`。
+
+### 1.4 AuthContext 兼容
+
+当前 `AuthContext.tsx` 直接 import `supabase` 用于 `onAuthStateChange`，需要改造：
+
+- 把 `supabase.auth.onAuthStateChange` 抽到 `cmdb.cloud.ts` 暴露 `subscribeAuthChanges(cb)`，internal 版用空实现（无服务端推送）。
+- AuthContext 改成调用 `subscribeAuthChanges`，同时 internal 模式下首次启动通过 `fetchCurrentProfile()` 检查 token 有效性即可。
+
+---
+
+## 二、FastAPI 后端补强
+
+`reference-backend/` 当前已有 schema/路由，需要补：
+
+1. **CORS 白名单**：默认从 `.env` 的 `CORS_ORIGINS` 读，但生产部署是同源（Nginx 反向代理），同源不会触发 CORS；保留默认 `*` 仅用于本地开发。
+2. **校正 `/auth/login` 返回**：当前已经返回 `{access_token, token_type, user}`，与新前端约定匹配。
+3. **新增 `/api/auth/me`** 已存在；确认 `Profile.last_login` 字段返回 `lastLogin`。
+4. **静态资源路由**（可选）：让 FastAPI 同时托管前端 `dist/`，简化部署。**本方案使用 Nginx 托管前端**，所以这一步跳过。
+
+---
+
+## 三、Nginx 前端容器
+
+`reference-backend/Dockerfile.web` —— 多阶段构建：
+
+```dockerfile
+# Stage 1: build
+FROM node:20-alpine AS build
+WORKDIR /app
+COPY package.json pnpm-lock.yaml* ./
+RUN corepack enable && pnpm install --frozen-lockfile
+COPY . .
+ENV VITE_API_MODE=internal
+ENV VITE_INTERNAL_API_BASE=/api
+RUN pnpm run build:prod
+
+# Stage 2: nginx
+FROM nginx:1.27-alpine
+COPY --from=build /app/dist /usr/share/nginx/html
+COPY reference-backend/nginx/default.conf /etc/nginx/conf.d/default.conf
+EXPOSE 80
+```
+
+`reference-backend/nginx/default.conf`:
+
+```nginx
+server {
+  listen 80;
+  server_name _;
+  root /usr/share/nginx/html;
+  index index.html;
+
+  # SPA fallback
+  location / {
+    try_files $uri $uri/ /index.html;
+  }
+
+  # API proxy (同源避免 CORS)
+  location /api/ {
+    proxy_pass http://api:8000/api/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_read_timeout 60s;
+  }
+
+  location /healthz {
+    proxy_pass http://api:8000/healthz;
+  }
+}
+```
+
+> 关键：前端通过 `/api/...` 同源调用，浏览器不会触发 CORS。Nginx 反代到 docker 网络里的 `api:8000`。
+
+---
+
+## 四、docker-compose 升级
+
+`reference-backend/docker-compose.yml` 替换为完整 4 服务版：
+
+```yaml
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpw}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-cmdb}
+      MYSQL_USER: ${MYSQL_USER:-cmdb}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-cmdb123}
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./init-db:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-pcmdb123"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+    # 不暴露 3306 给宿主，仅 docker 内网
+
+  api:
+    build:
+      context: .                # reference-backend/
+      dockerfile: Dockerfile
+    env_file: .env
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ..               # 仓库根
+      dockerfile: reference-backend/Dockerfile.web
+    depends_on:
+      - api
+    ports:
+      - "${WEB_PORT:-8080}:80"
+    restart: unless-stopped
+
+  redfish-mock:
+    image: dmtf/redfish-mockup-server:latest
+    restart: unless-stopped
+    # 仅 docker 内可见，api 通过 http://redfish-mock:8000 访问
+
+volumes:
+  mysql-data:
+```
+
+`reference-backend/.env.example` 补充：
+
+```dotenv
+WEB_PORT=8080
+# 同源场景下，CORS 留默认即可，不需要列前端域
+CORS_ORIGINS=*
+# 默认 BMC 走容器内 mock
+REDFISH_DEFAULT_BASE=http://redfish-mock:8000
+```
+
+---
+
+## 五、一键部署脚本
+
+`reference-backend/deploy.sh`（新建）：
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "$0")"
+[ -f .env ] || cp .env.example .env
+docker compose up -d --build
+echo
+echo "✅ 部署完成"
+echo "   控制台:        http://<本机IP>:${WEB_PORT:-8080}"
+echo "   API 文档:      http://<本机IP>:${WEB_PORT:-8080}/api/docs"
+echo "   默认账号:      admin / admin123"
+```
+
+赋可执行：`chmod +x reference-backend/deploy.sh`
+
+---
+
+## 六、文档
+
+更新 `reference-backend/README.md`，加入：
+
+- 系统要求：Linux + Docker 24+ + docker compose plugin
+- 一条命令安装：`./deploy.sh`
+- 端口说明：仅暴露 `8080`（可用 `WEB_PORT` 改），其它服务全部走内网
+- 修改默认密码、对接真实 BMC 的方法（直接 SQL 或将来在系统设置页加入）
+- 升级流程：`git pull && ./deploy.sh`
+
+---
+
+## 七、需要修改 / 新增的文件清单
+
+**前端（仓库根）**
+- `src/lib/api/mode.ts`（新增）
+- `src/lib/api/cmdb.cloud.ts`（由当前 `cmdb.ts` 重命名）
+- `src/lib/api/cmdb.internal.ts`（新增，调 FastAPI）
+- `src/lib/api/cmdb.ts`（改成 router 入口）
+- `src/contexts/AuthContext.tsx`（解耦 supabase 直接 import）
+- `src/integrations/supabase/client.ts` 不动（cloud 模式仍需要）
+
+**后端（reference-backend/）**
+- `Dockerfile.web`（新增多阶段：node build + nginx）
+- `nginx/default.conf`（新增）
+- `docker-compose.yml`（升级到 4 服务）
+- `.env.example`（追加 WEB_PORT 等）
+- `deploy.sh`（新增）
+- `README.md`（更新部署章节）
+
+---
+
+## 八、验证
+
+1. 在本仓库根执行 `cd reference-backend && ./deploy.sh`
+2. 浏览器访问 `http://<host>:8080`，用 `admin / admin123` 登录
+3. 检查清单：
+   - 仪表盘 4 张卡片 + 品牌分布图渲染正确
+   - 服务器列表 8 台，可新增/编辑/删除
+   - 备件列表 10 条，库存数与 Enter Cloud 版一致
+   - 入库/出库后库存联动 + 审计日志条目自动出现
+   - 服务器详情 → BMC 实时状态：`bj-prod-web-01` 应该能从 redfish-mock 取到模拟值（fallback 也能保持页面正常）
+   - `viewer` 账号无写入按钮
+4. `docker compose ps` 全部 healthy
+5. `curl http://<host>:8080/api/healthz` 返回 `{"ok":true}`
+
+回滚：`docker compose down -v` 即可清空数据库；`docker compose down` 保留数据。
+
