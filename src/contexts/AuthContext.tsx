@@ -1,32 +1,61 @@
 import { useEffect, useState, ReactNode } from "react";
 import type { AppUser, Role } from "@/types/cmdb";
-import { login as apiLogin } from "@/lib/mockApi";
-import { AuthContext, AUTH_STORAGE_KEY } from "./auth-context";
+import {
+  signInWithUsername,
+  signOut as apiSignOut,
+  fetchCurrentProfile,
+} from "@/lib/api/cmdb";
+import { supabase } from "@/integrations/supabase/client";
+import { AuthContext } from "./auth-context";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(AUTH_STORAGE_KEY);
-      if (raw) setUser(JSON.parse(raw));
-    } catch {
-      // ignore parse errors
-    }
-    setLoading(false);
+    let mounted = true;
+
+    // Subscribe FIRST, then check session — avoids missing the initial event.
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (!mounted) return;
+      if (!session) {
+        setUser(null);
+        return;
+      }
+      // Defer DB read out of the auth callback.
+      setTimeout(() => {
+        fetchCurrentProfile()
+          .then((p) => mounted && setUser(p))
+          .catch(() => mounted && setUser(null));
+      }, 0);
+    });
+
+    fetchCurrentProfile()
+      .then((p) => {
+        if (mounted) setUser(p);
+      })
+      .catch(() => {
+        if (mounted) setUser(null);
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
+
+    return () => {
+      mounted = false;
+      sub.subscription.unsubscribe();
+    };
   }, []);
 
   const signIn = async (username: string, password: string) => {
-    const u = await apiLogin(username, password);
+    const u = await signInWithUsername(username, password);
     setUser(u);
-    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(u));
     return u;
   };
 
-  const signOut = () => {
+  const signOut = async () => {
+    await apiSignOut();
     setUser(null);
-    localStorage.removeItem(AUTH_STORAGE_KEY);
   };
 
   const hasRole = (...roles: Role[]) => {

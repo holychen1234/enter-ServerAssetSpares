@@ -8,7 +8,7 @@ import {
   listParts,
   listServers,
   updatePart,
-} from "@/lib/mockApi";
+} from "@/lib/api/cmdb";
 import type { Part, PartCategory } from "@/types/cmdb";
 import { PageHeader } from "@/components/cmdb/PageHeader";
 import { DataTableToolbar } from "@/components/cmdb/DataTableToolbar";

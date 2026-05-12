@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { listUsers, updateUser } from "@/lib/mockApi";
+import { listUsers, updateUser } from "@/lib/api/cmdb";
 import { PageHeader } from "@/components/cmdb/PageHeader";
 import { Card } from "@/components/ui/card";
 import {

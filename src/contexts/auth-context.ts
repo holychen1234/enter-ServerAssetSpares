@@ -5,9 +5,8 @@ export interface AuthContextValue {
   user: AppUser | null;
   loading: boolean;
   signIn: (username: string, password: string) => Promise<AppUser>;
-  signOut: () => void;
+  signOut: () => void | Promise<void>;
   hasRole: (...roles: Role[]) => boolean;
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null);
-export const AUTH_STORAGE_KEY = "cmdb.auth.user";

@@ -6,7 +6,7 @@ import {
   deleteServer,
   listServers,
   updateServer,
-} from "@/lib/mockApi";
+} from "@/lib/api/cmdb";
 import type { Server } from "@/types/cmdb";
 import { PageHeader } from "@/components/cmdb/PageHeader";
 import { DataTableToolbar } from "@/components/cmdb/DataTableToolbar";

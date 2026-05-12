@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { listServers, listParts, listMovements, listAuditLogs } from "@/lib/mockApi";
+import { listServers, listParts, listMovements, listAuditLogs } from "@/lib/api/cmdb";
 import { StatCard } from "@/components/cmdb/StatCard";
 import { PageHeader } from "@/components/cmdb/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";

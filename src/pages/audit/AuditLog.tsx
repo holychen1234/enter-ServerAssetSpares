@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { listAuditLogs } from "@/lib/mockApi";
+import { listAuditLogs } from "@/lib/api/cmdb";
 import { PageHeader } from "@/components/cmdb/PageHeader";
 import { DataTableToolbar } from "@/components/cmdb/DataTableToolbar";
 import { Card } from "@/components/ui/card";

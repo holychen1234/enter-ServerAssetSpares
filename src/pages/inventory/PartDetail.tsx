@@ -1,6 +1,6 @@
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { getPart, listMovements } from "@/lib/mockApi";
+import { getPart, listMovements } from "@/lib/api/cmdb";
 import { PageHeader } from "@/components/cmdb/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";

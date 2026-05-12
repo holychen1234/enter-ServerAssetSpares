@@ -3109,16 +3109,276 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      audit_logs: {
+        Row: {
+          action: string
+          actor: string
+          created_at: string
+          detail: string | null
+          id: string
+          level: Database["public"]["Enums"]["audit_level"]
+          target: string
+        }
+        Insert: {
+          action: string
+          actor: string
+          created_at?: string
+          detail?: string | null
+          id?: string
+          level?: Database["public"]["Enums"]["audit_level"]
+          target: string
+        }
+        Update: {
+          action?: string
+          actor?: string
+          created_at?: string
+          detail?: string | null
+          id?: string
+          level?: Database["public"]["Enums"]["audit_level"]
+          target?: string
+        }
+        Relationships: []
+      }
+      parts: {
+        Row: {
+          brand: string
+          category: Database["public"]["Enums"]["part_category"]
+          created_at: string
+          id: string
+          location: string
+          model: string
+          remark: string | null
+          safety_stock: number
+          sn: string | null
+          spec: string
+          status: Database["public"]["Enums"]["part_status"]
+          stock: number
+          unit: string
+        }
+        Insert: {
+          brand: string
+          category: Database["public"]["Enums"]["part_category"]
+          created_at?: string
+          id?: string
+          location: string
+          model: string
+          remark?: string | null
+          safety_stock?: number
+          sn?: string | null
+          spec: string
+          status?: Database["public"]["Enums"]["part_status"]
+          stock?: number
+          unit?: string
+        }
+        Update: {
+          brand?: string
+          category?: Database["public"]["Enums"]["part_category"]
+          created_at?: string
+          id?: string
+          location?: string
+          model?: string
+          remark?: string | null
+          safety_stock?: number
+          sn?: string | null
+          spec?: string
+          status?: Database["public"]["Enums"]["part_status"]
+          stock?: number
+          unit?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          created_at: string
+          email: string
+          enabled: boolean
+          id: string
+          last_login: string | null
+          name: string
+          role: Database["public"]["Enums"]["app_role"]
+          username: string
+        }
+        Insert: {
+          created_at?: string
+          email: string
+          enabled?: boolean
+          id: string
+          last_login?: string | null
+          name: string
+          role?: Database["public"]["Enums"]["app_role"]
+          username: string
+        }
+        Update: {
+          created_at?: string
+          email?: string
+          enabled?: boolean
+          id?: string
+          last_login?: string | null
+          name?: string
+          role?: Database["public"]["Enums"]["app_role"]
+          username?: string
+        }
+        Relationships: []
+      }
+      servers: {
+        Row: {
+          asset_tag: string
+          biz_ip: string
+          bmc_password: string | null
+          bmc_protocol: Database["public"]["Enums"]["bmc_protocol"]
+          bmc_user: string
+          cpu_count: number
+          cpu_model: string
+          created_at: string
+          disk_count: number
+          hostname: string
+          id: string
+          idc: string
+          manufacturer: string
+          memory_gb: number
+          mgmt_ip: string
+          model: string
+          owner: string | null
+          purchase_date: string | null
+          rack: string
+          remark: string | null
+          sn: string
+          status: Database["public"]["Enums"]["server_status"]
+          tags: string[]
+          u_position: string
+          updated_at: string
+          warranty_end: string | null
+        }
+        Insert: {
+          asset_tag: string
+          biz_ip: string
+          bmc_password?: string | null
+          bmc_protocol?: Database["public"]["Enums"]["bmc_protocol"]
+          bmc_user?: string
+          cpu_count?: number
+          cpu_model: string
+          created_at?: string
+          disk_count?: number
+          hostname: string
+          id?: string
+          idc: string
+          manufacturer: string
+          memory_gb?: number
+          mgmt_ip: string
+          model: string
+          owner?: string | null
+          purchase_date?: string | null
+          rack: string
+          remark?: string | null
+          sn: string
+          status?: Database["public"]["Enums"]["server_status"]
+          tags?: string[]
+          u_position: string
+          updated_at?: string
+          warranty_end?: string | null
+        }
+        Update: {
+          asset_tag?: string
+          biz_ip?: string
+          bmc_password?: string | null
+          bmc_protocol?: Database["public"]["Enums"]["bmc_protocol"]
+          bmc_user?: string
+          cpu_count?: number
+          cpu_model?: string
+          created_at?: string
+          disk_count?: number
+          hostname?: string
+          id?: string
+          idc?: string
+          manufacturer?: string
+          memory_gb?: number
+          mgmt_ip?: string
+          model?: string
+          owner?: string | null
+          purchase_date?: string | null
+          rack?: string
+          remark?: string | null
+          sn?: string
+          status?: Database["public"]["Enums"]["server_status"]
+          tags?: string[]
+          u_position?: string
+          updated_at?: string
+          warranty_end?: string | null
+        }
+        Relationships: []
+      }
+      stock_movements: {
+        Row: {
+          created_at: string
+          id: string
+          operator: string
+          part_id: string
+          quantity: number
+          reason: string
+          related_server_id: string | null
+          type: Database["public"]["Enums"]["movement_type"]
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          operator: string
+          part_id: string
+          quantity: number
+          reason: string
+          related_server_id?: string | null
+          type: Database["public"]["Enums"]["movement_type"]
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          operator?: string
+          part_id?: string
+          quantity?: number
+          reason?: string
+          related_server_id?: string | null
+          type?: Database["public"]["Enums"]["movement_type"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "stock_movements_part_id_fkey"
+            columns: ["part_id"]
+            referencedRelation: "parts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "stock_movements_related_server_id_fkey"
+            columns: ["related_server_id"]
+            referencedRelation: "servers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      can_write: {
+        Args: Record<PropertyKey, never>
+        Returns: boolean
+      }
+      current_role: {
+        Args: Record<PropertyKey, never>
+        Returns: Database["public"]["Enums"]["app_role"]
+      }
+      is_admin: {
+        Args: Record<PropertyKey, never>
+        Returns: boolean
+      }
     }
     Enums: {
-      [_ in never]: never
+      app_role: "admin" | "operator" | "viewer"
+      audit_level: "info" | "warn" | "danger"
+      bmc_protocol: "redfish" | "ipmi"
+      movement_type: "inbound" | "outbound" | "return" | "scrap"
+      part_category: "disk" | "memory" | "nic" | "optical" | "other"
+      part_status: "in_stock" | "allocated" | "in_use" | "scrapped"
+      server_status: "online" | "offline" | "maintenance" | "retired"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -4331,7 +4591,15 @@ export const Constants = {
     Enums: {},
   },
   public: {
-    Enums: {},
+    Enums: {
+      app_role: ["admin", "operator", "viewer"],
+      audit_level: ["info", "warn", "danger"],
+      bmc_protocol: ["redfish", "ipmi"],
+      movement_type: ["inbound", "outbound", "return", "scrap"],
+      part_category: ["disk", "memory", "nic", "optical", "other"],
+      part_status: ["in_stock", "allocated", "in_use", "scrapped"],
+      server_status: ["online", "offline", "maintenance", "retired"],
+    },
   },
   realtime: {
     Enums: {

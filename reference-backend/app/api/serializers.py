@@ -1,0 +1,100 @@
+from datetime import datetime
+from typing import Iterable
+
+from app.db.models import AuditLog, Part, Profile, Server, StockMovement
+
+
+def server_to_dict(s: Server) -> dict:
+    return {
+        "id": s.id,
+        "hostname": s.hostname,
+        "sn": s.sn,
+        "assetTag": s.asset_tag,
+        "manufacturer": s.manufacturer,
+        "model": s.model,
+        "cpuModel": s.cpu_model,
+        "cpuCount": s.cpu_count,
+        "memoryGB": s.memory_gb,
+        "diskCount": s.disk_count,
+        "location": {
+            "idc": s.idc,
+            "rack": s.rack,
+            "uPosition": s.u_position,
+        },
+        "mgmtIp": s.mgmt_ip,
+        "bizIp": s.biz_ip,
+        "bmcProtocol": s.bmc_protocol,
+        "bmcUser": s.bmc_user,
+        "status": s.status,
+        "owner": s.owner or "",
+        "purchaseDate": s.purchase_date.isoformat() if isinstance(s.purchase_date, (datetime,)) else (s.purchase_date or ""),
+        "warrantyEnd": s.warranty_end.isoformat() if isinstance(s.warranty_end, (datetime,)) else (s.warranty_end or ""),
+        "tags": s.tags or [],
+        "remark": s.remark,
+        "createdAt": s.created_at.isoformat(),
+        "updatedAt": s.updated_at.isoformat(),
+    }
+
+
+def part_to_dict(p: Part) -> dict:
+    return {
+        "id": p.id,
+        "category": p.category,
+        "brand": p.brand,
+        "model": p.model,
+        "spec": p.spec,
+        "sn": p.sn,
+        "stock": p.stock,
+        "safetyStock": p.safety_stock,
+        "unit": p.unit,
+        "location": p.location,
+        "status": p.status,
+        "remark": p.remark,
+        "createdAt": p.created_at.isoformat(),
+    }
+
+
+def profile_to_dict(u: Profile) -> dict:
+    return {
+        "id": u.id,
+        "username": u.username,
+        "name": u.name,
+        "email": u.email,
+        "role": u.role,
+        "enabled": bool(u.enabled),
+        "lastLogin": u.last_login.isoformat() if u.last_login else None,
+    }
+
+
+def audit_to_dict(a: AuditLog) -> dict:
+    return {
+        "id": a.id,
+        "time": a.created_at.isoformat(),
+        "actor": a.actor,
+        "action": a.action,
+        "target": a.target,
+        "detail": a.detail or "",
+        "level": a.level,
+    }
+
+
+def movement_to_dict(
+    m: StockMovement, part: Part | None, server: Server | None
+) -> dict:
+    return {
+        "id": m.id,
+        "partId": m.part_id,
+        "partModel": f"{part.brand} {part.model}" if part else "",
+        "category": part.category if part else "other",
+        "type": m.type,
+        "quantity": m.quantity,
+        "operator": m.operator,
+        "relatedServerId": m.related_server_id,
+        "relatedServerHostname": server.hostname if server else None,
+        "reason": m.reason,
+        "time": m.created_at.isoformat(),
+    }
+
+
+def to_list(items: Iterable, fn) -> list:
+    return [fn(x) for x in items]

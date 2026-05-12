@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createMovement, listMovements, listParts, listServers } from "@/lib/mockApi";
+import { createMovement, listMovements, listParts, listServers } from "@/lib/api/cmdb";
 import type { MovementType } from "@/types/cmdb";
 import { PageHeader } from "@/components/cmdb/PageHeader";
 import { DataTableToolbar } from "@/components/cmdb/DataTableToolbar";
