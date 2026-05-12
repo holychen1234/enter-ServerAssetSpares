@@ -1,0 +1,40 @@
+## syntax=docker/dockerfile:1.6
+##
+## Web container: builds the Vite frontend in "internal" API mode and serves
+## it through Nginx, which also reverse-proxies /api → FastAPI.
+##
+## Build context for this file is the repository root, so paths reference the
+## frontend at the top level.
+
+# ---------- Stage 1: build ----------
+FROM node:20-alpine AS build
+WORKDIR /app
+
+# Install pnpm via corepack (matches the version pinned in package.json)
+RUN corepack enable && corepack prepare pnpm@8.6.12 --activate
+
+# Install deps using lockfile if present, else fallback to a regular install.
+COPY package.json pnpm-lock.yaml* ./
+RUN if [ -f pnpm-lock.yaml ]; then \
+      pnpm install --frozen-lockfile; \
+    else \
+      pnpm install --no-frozen-lockfile; \
+    fi
+
+# Build sources
+COPY . .
+
+# Switch the API layer to internal at build time
+ENV VITE_API_MODE=internal
+ENV VITE_INTERNAL_API_BASE=/api
+
+RUN pnpm run build:prod
+
+# ---------- Stage 2: runtime ----------
+FROM nginx:1.27-alpine
+
+COPY --from=build /app/dist /usr/share/nginx/html
+COPY reference-backend/nginx/default.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]

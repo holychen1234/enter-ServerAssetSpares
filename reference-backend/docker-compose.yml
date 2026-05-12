@@ -1,40 +1,55 @@
+# Full-stack on-prem deployment.
+# - mysql:        only reachable inside the docker network
+# - api:          FastAPI, only reachable inside the docker network
+# - web:          Nginx serving SPA + reverse-proxying /api → api:8000
+# - redfish-mock: DMTF Redfish mockup server, used as the default BMC endpoint
+#
+# Usage:
+#   cp .env.example .env
+#   docker compose up -d --build
+
 services:
   mysql:
     image: mysql:8.0
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: rootpw
-      MYSQL_DATABASE: cmdb
-      MYSQL_USER: cmdb
-      MYSQL_PASSWORD: cmdb123
-    ports:
-      - "3306:3306"
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpw}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-cmdb}
+      MYSQL_USER: ${MYSQL_USER:-cmdb}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-cmdb123}
     volumes:
       - mysql-data:/var/lib/mysql
       - ./init-db:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-pcmdb123"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_PASSWORD:-cmdb123}"]
       interval: 5s
       timeout: 3s
-      retries: 20
+      retries: 30
 
   api:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
     restart: unless-stopped
     env_file: .env
     depends_on:
       mysql:
         condition: service_healthy
-    ports:
-      - "8000:8000"
 
-  # DMTF Redfish mockup server for end-to-end BMC testing.
-  # Image: https://github.com/DMTF/Redfish-Mockup-Server
+  web:
+    build:
+      context: ..
+      dockerfile: reference-backend/Dockerfile.web
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "${WEB_PORT:-8080}:80"
+
   redfish-mock:
     image: dmtf/redfish-mockup-server:latest
     restart: unless-stopped
-    ports:
-      - "8001:8000"
+    # Internal only — the api container reaches it via http://redfish-mock:8000
 
 volumes:
   mysql-data:

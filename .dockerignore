@@ -1,0 +1,14 @@
+node_modules
+dist
+.git
+.github
+.enter
+.vscode
+.idea
+*.log
+.DS_Store
+coverage
+reference-backend/mysql-data
+.env
+.env.local
+.env.*.local

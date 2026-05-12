@@ -4,8 +4,8 @@ import {
   signInWithUsername,
   signOut as apiSignOut,
   fetchCurrentProfile,
+  subscribeAuthChanges,
 } from "@/lib/api/cmdb";
-import { supabase } from "@/integrations/supabase/client";
 import { AuthContext } from "./auth-context";
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -15,14 +15,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    // Subscribe FIRST, then check session — avoids missing the initial event.
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+    // Subscribe FIRST, then check session — for cloud this hooks Supabase auth
+    // events, for internal it's a no-op.
+    const unsubscribe = subscribeAuthChanges((hasSession) => {
       if (!mounted) return;
-      if (!session) {
+      if (!hasSession) {
         setUser(null);
         return;
       }
-      // Defer DB read out of the auth callback.
       setTimeout(() => {
         fetchCurrentProfile()
           .then((p) => mounted && setUser(p))
@@ -43,7 +43,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return () => {
       mounted = false;
-      sub.subscription.unsubscribe();
+      unsubscribe();
     };
   }, []);
 
