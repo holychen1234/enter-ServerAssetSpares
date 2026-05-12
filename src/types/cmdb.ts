@@ -33,6 +33,7 @@ export interface Server {
   diskCount: number;
   location: ServerLocation;
   mgmtIp: string;
+  bizIp: string;
   bmcProtocol: BmcProtocol;
   bmcUser: string;
   status: ServerStatus;
