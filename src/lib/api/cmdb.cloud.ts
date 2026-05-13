@@ -299,14 +299,43 @@ export async function updateUser(
 }
 
 // ---------- Audit ----------
-export async function listAuditLogs(): Promise<AuditEntry[]> {
-  const { data, error } = await supabase
+export async function listAuditLogs(
+  filters: import("@/types/cmdb").AuditFilters = {},
+): Promise<import("@/types/cmdb").AuditPage> {
+  const limit = Math.min(Math.max(filters.limit ?? 50, 1), 500);
+  const offset = Math.max(filters.offset ?? 0, 0);
+
+  let q = supabase
     .from("audit_logs")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(200);
+    .select("*", { count: "exact" })
+    .order("created_at", { ascending: false });
+
+  if (filters.level) q = q.eq("level", filters.level);
+  if (filters.actor) q = q.eq("actor", filters.actor);
+  if (filters.action) {
+    if (filters.action.endsWith(".")) {
+      q = q.like("action", `${filters.action}%`);
+    } else {
+      q = q.eq("action", filters.action);
+    }
+  }
+  if (filters.target) q = q.ilike("target", `%${filters.target}%`);
+  if (filters.start) q = q.gte("created_at", filters.start);
+  if (filters.end) q = q.lt("created_at", filters.end);
+  if (filters.q) {
+    const kw = filters.q.replace(/[%_]/g, "");
+    q = q.or(
+      `actor.ilike.%${kw}%,action.ilike.%${kw}%,target.ilike.%${kw}%,detail.ilike.%${kw}%`,
+    );
+  }
+  q = q.range(offset, offset + limit - 1);
+
+  const { data, error, count } = await q;
   if (error) throw error;
-  return (data ?? []).map(rowToAudit);
+  return {
+    items: (data ?? []).map(rowToAudit),
+    total: count ?? (data?.length ?? 0),
+  };
 }
 
 // ---------- Auth (helper) ----------
@@ -352,6 +381,24 @@ export async function signInWithUsername(
 }
 
 export async function signOut(): Promise<void> {
+  // best-effort: write a logout audit entry while we still have a session
+  const { data } = await supabase.auth.getUser();
+  if (data.user) {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("username")
+      .eq("id", data.user.id)
+      .maybeSingle();
+    if (profile?.username) {
+      await supabase.from("audit_logs").insert({
+        actor: profile.username,
+        action: "user.logout",
+        target: "session",
+        detail: "退出登录",
+        level: "info",
+      });
+    }
+  }
   await supabase.auth.signOut();
 }
 

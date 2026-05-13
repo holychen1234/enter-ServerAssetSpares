@@ -142,3 +142,27 @@ export interface AuditEntry {
   detail: string;
   level: "info" | "warn" | "danger";
 }
+
+/** Filters accepted by listAuditLogs(). All fields are optional. */
+export interface AuditFilters {
+  /** Free-text search across actor / action / target / detail. */
+  q?: string;
+  level?: AuditEntry["level"];
+  /** Match by exact action name, or prefix (e.g. "server."). */
+  action?: string;
+  /** Match by exact actor (operator username). */
+  actor?: string;
+  /** Substring match against the `target` field, e.g. "srv:bj-prod". */
+  target?: string;
+  /** ISO timestamp lower bound (inclusive). */
+  start?: string;
+  /** ISO timestamp upper bound (exclusive). */
+  end?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface AuditPage {
+  items: AuditEntry[];
+  total: number;
+}

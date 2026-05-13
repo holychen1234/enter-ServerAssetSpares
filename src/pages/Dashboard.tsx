@@ -46,7 +46,11 @@ export default function Dashboard() {
   const { data: servers = [] } = useQuery({ queryKey: ["servers"], queryFn: listServers });
   const { data: parts = [] } = useQuery({ queryKey: ["parts"], queryFn: listParts });
   const { data: movements = [] } = useQuery({ queryKey: ["movements"], queryFn: listMovements });
-  const { data: logs = [] } = useQuery({ queryKey: ["audit"], queryFn: listAuditLogs });
+  const { data: auditPage } = useQuery({
+    queryKey: ["audit", "dashboard"],
+    queryFn: () => listAuditLogs({ limit: 6 }),
+  });
+  const logs = auditPage?.items ?? [];
 
   const total = servers.length;
   const online = servers.filter((s) => s.status === "online").length;

@@ -3,7 +3,6 @@
 // because the FastAPI serializers reuse the same camelCase keys.
 import type {
   AppUser,
-  AuditEntry,
   BmcStatus,
   Part,
   Server,
@@ -168,8 +167,18 @@ export async function updateUser(
 }
 
 // ---------- Audit ----------
-export async function listAuditLogs(): Promise<AuditEntry[]> {
-  return api<AuditEntry[]>("/audit-logs");
+export async function listAuditLogs(
+  filters: import("@/types/cmdb").AuditFilters = {},
+): Promise<import("@/types/cmdb").AuditPage> {
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters)) {
+    if (v === undefined || v === null || v === "") continue;
+    params.set(k, String(v));
+  }
+  const qs = params.toString();
+  return api<import("@/types/cmdb").AuditPage>(
+    `/audit-logs${qs ? `?${qs}` : ""}`,
+  );
 }
 
 // ---------- Auth ----------
@@ -193,6 +202,12 @@ export async function signInWithUsername(
 }
 
 export async function signOut(): Promise<void> {
+  // best-effort logout audit; ignore errors so logout always succeeds
+  try {
+    await api<void>("/auth/logout", { method: "POST" });
+  } catch {
+    /* ignore — local token will be cleared anyway */
+  }
   setToken(null);
 }
 

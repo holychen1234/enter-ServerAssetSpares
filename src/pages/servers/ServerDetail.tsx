@@ -1,6 +1,6 @@
 import { useNavigate, useParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { getBmcStatus, getServer, listMovements } from "@/lib/api/cmdb";
+import { getBmcStatus, getServer, listMovements, listAuditLogs } from "@/lib/api/cmdb";
 import { PageHeader } from "@/components/cmdb/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -28,6 +28,15 @@ export default function ServerDetail() {
     queryKey: ["movements"],
     queryFn: listMovements,
   });
+  // Audit entries that touched this server. The convention used everywhere
+  // in the backend is `target = "srv:<hostname>"`, so we filter by it.
+  const { data: auditPage } = useQuery({
+    queryKey: ["audit", "server", server?.hostname ?? id],
+    queryFn: () =>
+      listAuditLogs({ target: `srv:${server?.hostname ?? ""}`, limit: 100 }),
+    enabled: !!server?.hostname,
+  });
+  const serverLogs = auditPage?.items ?? [];
   const related = movements.filter((m) => m.relatedServerId === id);
 
   if (isLoading) {
@@ -176,9 +185,49 @@ export default function ServerDetail() {
 
         <TabsContent value="logs">
           <Card className="shadow-card-soft">
-            <CardHeader><CardTitle className="text-base">操作日志（演示）</CardTitle></CardHeader>
-            <CardContent className="text-sm text-muted-foreground">
-              <p>该 Tab 在生产版会展示对该服务器的所有操作记录（创建、更新、BMC 告警、备件挂载等）。</p>
+            <CardHeader>
+              <CardTitle className="text-base">
+                操作日志 · {server.hostname}
+                <span className="ml-2 text-xs font-normal text-muted-foreground">
+                  共 {serverLogs.length} 条
+                </span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              {serverLogs.length === 0 ? (
+                <p className="px-6 py-8 text-center text-sm text-muted-foreground">
+                  暂无与该服务器关联的操作记录
+                </p>
+              ) : (
+                <div className="divide-y divide-border">
+                  {serverLogs.map((l) => (
+                    <div key={l.id} className="flex items-start gap-3 px-6 py-3">
+                      <span
+                        className={
+                          "mt-1 inline-block rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wider " +
+                          (l.level === "info"
+                            ? "bg-info/10 text-info border-info/30"
+                            : l.level === "warn"
+                              ? "bg-warning/10 text-warning border-warning/30"
+                              : "bg-danger/10 text-danger border-danger/30")
+                        }
+                      >
+                        {l.level}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-baseline gap-2">
+                          <span className="font-mono text-xs text-primary">{l.action}</span>
+                          <span className="font-mono text-[11px] text-muted-foreground">{l.actor}</span>
+                          <span className="ml-auto text-[11px] text-muted-foreground">
+                            {new Date(l.time).toLocaleString()}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-sm text-foreground">{l.detail || "—"}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
