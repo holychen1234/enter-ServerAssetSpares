@@ -10,6 +10,11 @@ from app.db.base import get_db
 from app.db.models import Profile
 from app.settings import settings
 
+# bcrypt 4.x removed `__about__`, which trips passlib 1.7.4 on first call
+# and surfaces as a 500 -> the frontend then sees "Internal Server Error"
+# instead of JSON. We pin bcrypt==4.0.1 in requirements, but also keep a
+# defensive try/except so a future env mismatch fails *cleanly* with 401
+# rather than crashing the request.
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
@@ -18,7 +23,17 @@ def hash_password(raw: str) -> str:
 
 
 def verify_password(raw: str, hashed: str) -> bool:
-    return pwd_context.verify(raw, hashed)
+    try:
+        return pwd_context.verify(raw, hashed)
+    except Exception:
+        # Fallback: call bcrypt directly. Both bcrypt 3.x and 4.x expose
+        # checkpw / hashpw, so this works regardless of passlib quirks.
+        try:
+            import bcrypt as _bcrypt
+
+            return _bcrypt.checkpw(raw.encode("utf-8"), hashed.encode("utf-8"))
+        except Exception:
+            return False
 
 
 def create_token(profile: Profile) -> str:

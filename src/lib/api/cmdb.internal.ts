@@ -51,13 +51,23 @@ async function api<T>(path: string, opts: FetchOptions = {}): Promise<T> {
   });
   if (res.status === 204) return undefined as T;
   const text = await res.text();
-  const data = text ? JSON.parse(text) : undefined;
+  // Tolerate non-JSON responses (e.g. nginx "Internal Server Error" text,
+  // FastAPI HTML error pages). Without this, JSON.parse throws a confusing
+  // "Unexpected identifier" message and hides the real status code.
+  let data: unknown = undefined;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { detail: text };
+    }
+  }
   if (!res.ok) {
+    const d = data as { detail?: unknown; message?: unknown; error?: unknown } | undefined;
+    const raw = d?.detail ?? d?.message ?? d?.error ?? res.statusText ?? "请求失败";
     const msg =
-      (data && (data.detail || data.message || data.error)) ||
-      res.statusText ||
-      "请求失败";
-    throw new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
+      typeof raw === "string" ? raw : JSON.stringify(raw);
+    throw new Error(`[${res.status}] ${msg}`);
   }
   return data as T;
 }
