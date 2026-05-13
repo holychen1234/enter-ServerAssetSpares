@@ -40,6 +40,7 @@ const schema = z.object({
   bizIp: z.string().min(1, "必填"),
   bmcProtocol: z.enum(["redfish", "ipmi"]),
   bmcUser: z.string().min(1, "必填"),
+  bmcPassword: z.string().optional(),
   status: z.enum(["online", "offline", "maintenance", "retired"]),
   owner: z.string().min(1, "必填"),
   purchaseDate: z.string().min(1, "必填"),
@@ -74,6 +75,7 @@ const EMPTY: ServerFormData = {
   bizIp: "",
   bmcProtocol: "redfish",
   bmcUser: "admin",
+  bmcPassword: "",
   status: "online",
   owner: "",
   purchaseDate: "",
@@ -108,6 +110,7 @@ export function ServerForm({ open, initial, onClose, onSubmit }: Props) {
           bizIp: initial.bizIp,
           bmcProtocol: initial.bmcProtocol,
           bmcUser: initial.bmcUser,
+          bmcPassword: "",
           status: initial.status,
           owner: initial.owner,
           purchaseDate: initial.purchaseDate,
@@ -122,6 +125,8 @@ export function ServerForm({ open, initial, onClose, onSubmit }: Props) {
   }, [open, initial, form]);
 
   const handleSubmit = form.handleSubmit(async (values) => {
+    // Empty password = "do not change". Only forward when the user actually typed something.
+    const bmcPassword = values.bmcPassword?.trim() ? values.bmcPassword : undefined;
     await onSubmit({
       hostname: values.hostname,
       sn: values.sn,
@@ -137,6 +142,7 @@ export function ServerForm({ open, initial, onClose, onSubmit }: Props) {
       bizIp: values.bizIp,
       bmcProtocol: values.bmcProtocol,
       bmcUser: values.bmcUser,
+      bmcPassword,
       status: values.status,
       owner: values.owner,
       purchaseDate: values.purchaseDate,
@@ -215,6 +221,21 @@ export function ServerForm({ open, initial, onClose, onSubmit }: Props) {
           </Field>
           <Field label="BMC 用户名">
             <Input {...form.register("bmcUser")} />
+          </Field>
+          <Field
+            label={initial ? "BMC 密码（留空保持不变）" : "BMC 密码"}
+            className="sm:col-span-2"
+          >
+            <Input
+              type="password"
+              autoComplete="new-password"
+              placeholder={
+                initial
+                  ? "如需修改请输入新密码，否则保持空白"
+                  : "用于 Redfish/IPMI 实时采集"
+              }
+              {...form.register("bmcPassword")}
+            />
           </Field>
           <Field label="状态">
             <Select value={form.watch("status")} onValueChange={(v) => form.setValue("status", v as ServerFormData["status"])}>

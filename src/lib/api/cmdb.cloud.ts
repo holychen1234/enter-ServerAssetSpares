@@ -105,6 +105,10 @@ export async function updateServer(
   if (patch.bizIp !== undefined) dbPatch.biz_ip = patch.bizIp;
   if (patch.bmcProtocol !== undefined) dbPatch.bmc_protocol = patch.bmcProtocol;
   if (patch.bmcUser !== undefined) dbPatch.bmc_user = patch.bmcUser;
+  // Only update bmc_password when explicitly set to a non-empty string.
+  if (patch.bmcPassword !== undefined && patch.bmcPassword !== "") {
+    dbPatch.bmc_password = patch.bmcPassword;
+  }
   if (patch.status !== undefined) dbPatch.status = patch.status;
   if (patch.owner !== undefined) dbPatch.owner = patch.owner;
   if (patch.purchaseDate !== undefined) dbPatch.purchase_date = patch.purchaseDate || null;

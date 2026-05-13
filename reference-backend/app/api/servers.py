@@ -42,6 +42,11 @@ def _apply_payload(s: Server, body: dict):
         s.idc = loc.get("idc", s.idc)
         s.rack = loc.get("rack", s.rack)
         s.u_position = loc.get("uPosition", s.u_position)
+    # BMC password: only persist when caller explicitly sends a non-empty
+    # string. Empty string / missing key = "keep existing password".
+    pwd = body.get("bmcPassword")
+    if isinstance(pwd, str) and pwd != "":
+        s.bmc_password = pwd
 
 
 @router.get("/servers")

@@ -25,6 +25,9 @@ def server_to_dict(s: Server) -> dict:
         "bizIp": s.biz_ip,
         "bmcProtocol": s.bmc_protocol,
         "bmcUser": s.bmc_user,
+        # bmc_password is intentionally NOT returned. We only expose a
+        # boolean so the UI can show "已设置 / 未设置".
+        "bmcPasswordSet": bool(s.bmc_password),
         "status": s.status,
         "owner": s.owner or "",
         "purchaseDate": s.purchase_date.isoformat() if isinstance(s.purchase_date, (datetime,)) else (s.purchase_date or ""),

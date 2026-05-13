@@ -36,6 +36,15 @@ export interface Server {
   bizIp: string;
   bmcProtocol: BmcProtocol;
   bmcUser: string;
+  /**
+   * BMC password — write-only on the wire. The API never returns the
+   * stored value (security), so this is always undefined when reading
+   * a server back. When creating/updating, an empty string means
+   * "do not change the existing password".
+   */
+  bmcPassword?: string;
+  /** Server-side flag indicating whether a BMC password is on file. */
+  bmcPasswordSet?: boolean;
   status: ServerStatus;
   owner: string;
   purchaseDate: string;

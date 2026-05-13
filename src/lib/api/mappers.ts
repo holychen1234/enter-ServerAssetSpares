@@ -32,6 +32,7 @@ export function rowToServer(r: ServerRow): Server {
     bizIp: r.biz_ip,
     bmcProtocol: r.bmc_protocol,
     bmcUser: r.bmc_user,
+    bmcPasswordSet: !!r.bmc_password,
     status: r.status,
     owner: r.owner ?? "",
     purchaseDate: r.purchase_date ?? "",
@@ -63,6 +64,11 @@ export function serverToRow(
     biz_ip: s.bizIp,
     bmc_protocol: s.bmcProtocol,
     bmc_user: s.bmcUser,
+    // Only persist bmc_password when the caller explicitly provides one.
+    // Empty string is treated as "do not change".
+    ...(s.bmcPassword !== undefined && s.bmcPassword !== ""
+      ? { bmc_password: s.bmcPassword }
+      : {}),
     status: s.status,
     owner: s.owner,
     purchase_date: s.purchaseDate || null,

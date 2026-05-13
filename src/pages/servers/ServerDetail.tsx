@@ -115,6 +115,16 @@ export default function ServerDetail() {
               <Row label="BMC IP" value={server.mgmtIp} mono />
               <Row label="BMC 协议" value={server.bmcProtocol.toUpperCase()} />
               <Row label="BMC 用户" value={server.bmcUser} mono />
+              <Row
+                label="BMC 密码"
+                value={
+                  server.bmcPasswordSet ? (
+                    <span className="text-success">已设置</span>
+                  ) : (
+                    <span className="text-warning">未设置</span>
+                  )
+                }
+              />
             </InfoCard>
 
             <InfoCard title="生命周期">
