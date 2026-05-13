@@ -1,5 +1,6 @@
 CREATE DATABASE IF NOT EXISTS cmdb CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE cmdb;
+SET NAMES utf8mb4;
 
 CREATE TABLE IF NOT EXISTS profiles (
   id            CHAR(36)      NOT NULL PRIMARY KEY,

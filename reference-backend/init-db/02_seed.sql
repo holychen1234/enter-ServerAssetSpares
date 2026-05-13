@@ -1,4 +1,8 @@
 USE cmdb;
+-- Force connection charset so Chinese strings are stored as utf8mb4, not
+-- re-encoded from the client's default (often latin1) into the utf8mb4
+-- columns — which would produce mojibake like "ç³»ç»Ÿç®¡ç¿".
+SET NAMES utf8mb4;
 
 -- Seed accounts (bcrypt hashes generated and verified with passlib bcrypt scheme).
 -- admin    / admin123

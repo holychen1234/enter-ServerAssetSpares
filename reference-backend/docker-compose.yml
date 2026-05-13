@@ -12,6 +12,14 @@ services:
   mysql:
     image: mysql:8.0
     restart: unless-stopped
+    # Force server + client default charset to utf8mb4 so init scripts,
+    # CLI sessions and the FastAPI driver all agree. Without this the
+    # MySQL 8 client defaults to utf8mb4 but legacy tooling can still
+    # negotiate latin1, producing mojibake like "ç³»ç»Ÿç®¡ç¿".
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-character-set-client-handshake
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-rootpw}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-cmdb}
