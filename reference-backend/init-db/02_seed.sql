@@ -1,13 +1,13 @@
 USE cmdb;
 
--- Seed accounts (bcrypt hashes)
+-- Seed accounts (bcrypt hashes generated and verified with passlib bcrypt scheme).
 -- admin    / admin123
 -- operator / 123456
 -- viewer   / 123456
 INSERT INTO profiles (id, username, name, email, password_hash, role, enabled) VALUES
-('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'admin',    '系统管理员', 'admin@corp.local',    '$2b$12$pAkBMP.fEKRiUKHVOtCO5e2ggxuiJfpa0SMQOABxJfk0grO4u4VVi', 'admin',    1),
-('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'operator', '运维工程师', 'operator@corp.local', '$2b$12$wjI66Z4BKEX4HPM7qf2ihOAuyYJ7AJDGcsATnFqBhJOZmxOiXYxJG', 'operator', 1),
-('cccccccc-cccc-cccc-cccc-cccccccccccc', 'viewer',   '只读访客',   'viewer@corp.local',   '$2b$12$wjI66Z4BKEX4HPM7qf2ihOAuyYJ7AJDGcsATnFqBhJOZmxOiXYxJG', 'viewer',   1);
+('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', 'admin',    '系统管理员', 'admin@corp.local',    '$2b$12$R9pcrosiOLz82vHqhQLZkOMP7q8O4UqYPghQTFD.8icQdPc2yaTsC', 'admin',    1),
+('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', 'operator', '运维工程师', 'operator@corp.local', '$2b$12$7KU5SurJvbM6CEKQxYwLFuTFFk2yQFqLmTj3vhk9eyI2smaA9R9yy', 'operator', 1),
+('cccccccc-cccc-cccc-cccc-cccccccccccc', 'viewer',   '只读访客',   'viewer@corp.local',   '$2b$12$FlZrHXRZlLQkYHyoED2HJegT3C1/ivv1Ne2AxOiTrxlBdwPHjxPgm', 'viewer',   1);
 
 INSERT INTO servers (id, hostname, sn, asset_tag, manufacturer, model, cpu_model, cpu_count, memory_gb, disk_count, idc, rack, u_position, mgmt_ip, biz_ip, bmc_protocol, bmc_user, status, owner, purchase_date, warranty_end, tags, remark) VALUES
 ('11111111-0000-0000-0000-000000000001','bj-prod-web-01','CN7420A001','AS-2023-0001','Dell','PowerEdge R750','Intel Xeon Gold 6338 @ 2.0GHz',2,256,8,'BJ-IDC-A','A03','U12-U13','10.10.20.11','172.16.10.11','redfish','admin','online','infra-team','2023-03-15','2026-03-14',JSON_ARRAY('prod','web'),'前端反向代理'),
