@@ -1,7 +1,16 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
+import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/cmdb/StatusBadge";
-import { Activity, Power, Thermometer, Wind, Zap } from "lucide-react";
+import {
+  Activity,
+  AlertTriangle,
+  Power,
+  Radio,
+  Thermometer,
+  Wind,
+  Zap,
+} from "lucide-react";
 import type { BmcStatus } from "@/types/cmdb";
 import {
   Area,
@@ -18,6 +27,26 @@ interface Props {
   loading?: boolean;
 }
 
+function SourceBadge({ status }: { status: BmcStatus }) {
+  const isLive = status.source === "live";
+  return (
+    <Badge
+      variant={isLive ? "default" : "secondary"}
+      className={
+        isLive
+          ? "gap-1 bg-success/15 text-success hover:bg-success/20"
+          : "gap-1 bg-warning/15 text-warning hover:bg-warning/20"
+      }
+    >
+      <Radio className={`h-3 w-3 ${isLive ? "animate-pulse" : ""}`} />
+      {isLive ? "BMC 实时" : "模拟数据"}
+      <span className="ml-1 text-[10px] uppercase opacity-70">
+        {status.protocol}
+      </span>
+    </Badge>
+  );
+}
+
 export function BmcLiveCard({ status, loading }: Props) {
   return (
     <div className="grid gap-4 lg:grid-cols-3">
@@ -25,7 +54,12 @@ export function BmcLiveCard({ status, loading }: Props) {
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
             <Activity className="h-4 w-4 text-primary" /> 总体状态
-            {loading && <span className="ml-auto text-xs text-muted-foreground">刷新中…</span>}
+            <div className="ml-auto flex items-center gap-2">
+              <SourceBadge status={status} />
+              {loading && (
+                <span className="text-xs text-muted-foreground">刷新中…</span>
+              )}
+            </div>
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -60,6 +94,14 @@ export function BmcLiveCard({ status, loading }: Props) {
               <span className="font-mono font-medium text-foreground">{status.inletTempC}°C</span>
             </div>
             <Progress value={Math.min(100, status.inletTempC * 2)} className="h-2" />
+          </div>
+          <div className="border-t border-border pt-3 text-[11px] text-muted-foreground">
+            最后更新：{new Date(status.updatedAt).toLocaleTimeString()}
+            {status.collectedAt && status.source === "live" && (
+              <>
+                {" · "}采集于：{new Date(status.collectedAt).toLocaleTimeString()}
+              </>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -142,6 +184,32 @@ export function BmcLiveCard({ status, loading }: Props) {
           ))}
         </CardContent>
       </Card>
+
+      {status.alerts.length > 0 && (
+        <Card className="lg:col-span-3 shadow-card-soft border-warning/40">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <AlertTriangle className="h-4 w-4 text-warning" /> 告警 / 提示
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {status.alerts.map((a) => (
+              <div
+                key={a.id}
+                className="flex items-start gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2"
+              >
+                <StatusBadge kind="health" value={a.level} />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-foreground">{a.message}</p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">
+                    {new Date(a.time).toLocaleString()}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

@@ -103,8 +103,12 @@ export async function deleteServer(id: string): Promise<void> {
 }
 
 // ---------- BMC ----------
-export async function getBmcStatus(serverId: string): Promise<BmcStatus> {
-  return api<BmcStatus>(`/servers/${serverId}/bmc`);
+export async function getBmcStatus(
+  serverId: string,
+  opts: { force?: boolean } = {},
+): Promise<BmcStatus> {
+  const qs = opts.force ? "?refresh=true" : "";
+  return api<BmcStatus>(`/servers/${serverId}/bmc${qs}`);
 }
 
 // ---------- Parts ----------

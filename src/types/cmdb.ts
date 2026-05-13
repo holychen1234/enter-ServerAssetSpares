@@ -48,8 +48,18 @@ export interface Server {
 
 export type Health = "OK" | "Warning" | "Critical";
 
+/**
+ * Source of the data shown in the BMC live card.
+ * - "live":      real Redfish / IPMI poll succeeded.
+ * - "simulated": BMC unreachable or no real endpoint configured;
+ *                values are deterministic mocks for demo / offline use.
+ */
+export type BmcDataSource = "live" | "simulated";
+
 export interface BmcStatus {
   serverId: string;
+  source: BmcDataSource;
+  protocol: BmcProtocol;
   power: "On" | "Off";
   health: Health;
   bootProgress: string;
@@ -65,6 +75,8 @@ export interface BmcStatus {
   alerts: { id: string; time: string; level: Health; message: string }[];
   history: { t: string; cpu: number; inlet: number; power: number }[];
   updatedAt: string;
+  /** Last time a real (non-simulated) sample was collected. */
+  collectedAt?: string;
 }
 
 export type PartCategory = "disk" | "memory" | "nic" | "optical" | "other";

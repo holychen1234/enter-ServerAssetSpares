@@ -137,10 +137,11 @@ def delete_server(
 @router.get("/servers/{sid}/bmc")
 async def server_bmc(
     sid: str,
+    refresh: bool = False,
     db: Session = Depends(get_db),
     _: Profile = Depends(get_current_user),
 ):
     s = db.get(Server, sid)
     if not s:
         raise HTTPException(404, "server not found")
-    return await bmc_svc.get_status(s)
+    return await bmc_svc.get_status(s, force_refresh=refresh)

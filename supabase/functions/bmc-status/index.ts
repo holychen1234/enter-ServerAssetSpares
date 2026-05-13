@@ -1,10 +1,11 @@
 // BMC live-status proxy.
 // - For servers with bmc_protocol = 'redfish' AND a reachable Redfish endpoint
-//   (mgmt_ip), it queries the public Redfish mock conventions. If unavailable,
-//   it falls back to a deterministic simulation so the UI keeps working.
-// - For servers with bmc_protocol = 'ipmi', it returns a simulation marked with
-//   an info alert telling the operator that an internal IPMI collector is
-//   required (cannot be done from edge runtime).
+//   (mgmt_ip), it queries Chassis (Power+Thermal) and Systems collections,
+//   discovering the first member dynamically. If unavailable, falls back to
+//   a deterministic simulation so the UI keeps working.
+// - For servers with bmc_protocol = 'ipmi', it returns a simulation marked
+//   with an info alert telling the operator that an internal IPMI collector
+//   is required (cannot run from edge runtime).
 //
 // Authenticated requests only; uses the caller's JWT to enforce RLS on the
 // underlying servers row.
@@ -24,9 +25,12 @@ const corsHeaders = {
 };
 
 type Health = "OK" | "Warning" | "Critical";
+type DataSource = "live" | "simulated";
 
 interface BmcStatus {
   serverId: string;
+  source: DataSource;
+  protocol: string;
   power: "On" | "Off";
   health: Health;
   bootProgress: string;
@@ -37,14 +41,17 @@ interface BmcStatus {
   alerts: { id: string; time: string; level: Health; message: string }[];
   history: { t: string; cpu: number; inlet: number; power: number }[];
   updatedAt: string;
+  collectedAt?: string;
 }
 
 function rand(min: number, max: number) {
   return Math.round((Math.random() * (max - min) + min) * 10) / 10;
 }
-
 function uid() {
   return crypto.randomUUID().slice(0, 8);
+}
+function nowIso() {
+  return new Date().toISOString();
 }
 
 function genHistory(seed: number) {
@@ -92,33 +99,10 @@ function simulate(
     capacityW: 800,
     status: (isOffline ? "Critical" : "OK") as Health,
   }));
-  const alerts: BmcStatus["alerts"] = [];
-  if (isOffline) {
-    alerts.push({
-      id: uid(),
-      time: new Date().toISOString(),
-      level: "Critical",
-      message: "BMC unreachable / 设备离线",
-    });
-  } else if (cpuTemp > 75) {
-    alerts.push({
-      id: uid(),
-      time: new Date().toISOString(),
-      level: "Warning",
-      message: `CPU 温度 ${cpuTemp}°C 超过阈值 75°C`,
-    });
-  }
-  if (protocol === "ipmi") {
-    alerts.push({
-      id: uid(),
-      time: new Date().toISOString(),
-      level: "Warning",
-      message:
-        "当前为 IPMI 设备，需要内网部署 IPMI 采集器才能获取真实数据。当前展示为模拟值。",
-    });
-  }
   return {
     serverId,
+    source: "simulated",
+    protocol,
     power: isOffline ? "Off" : "On",
     health,
     bootProgress: isOffline ? "PowerOff" : "OSBootCompleted",
@@ -126,10 +110,31 @@ function simulate(
     inletTempC: inlet,
     fans,
     psus,
-    alerts,
+    alerts: [],
     history: genHistory(seed),
-    updatedAt: new Date().toISOString(),
+    updatedAt: nowIso(),
   };
+}
+
+async function discoverFirstMember(
+  base: string,
+  collection: string,
+  headers: Record<string, string>,
+  signal: AbortSignal,
+): Promise<string | null> {
+  try {
+    const r = await fetch(`${base}/redfish/v1/${collection}`, {
+      headers,
+      signal,
+    });
+    if (!r.ok) return null;
+    const j = await r.json();
+    const m = (j.Members ?? [])[0];
+    if (!m?.["@odata.id"]) return null;
+    return String(m["@odata.id"]).replace(/^\/+/, "");
+  } catch {
+    return null;
+  }
 }
 
 async function tryRedfish(
@@ -137,8 +142,6 @@ async function tryRedfish(
   user: string | null,
   password: string | null,
 ): Promise<Partial<BmcStatus> | null> {
-  // Best-effort Redfish polling. Returns null on any error so the caller can
-  // fall back to simulation.
   const headers: Record<string, string> = { Accept: "application/json" };
   if (user && password) {
     headers.Authorization = `Basic ${btoa(`${user}:${password}`)}`;
@@ -146,34 +149,55 @@ async function tryRedfish(
   const ctrl = new AbortController();
   const timeout = setTimeout(() => ctrl.abort(), 4000);
   try {
-    // Chassis/1 → Power & Thermal
-    const [thermalRes, powerRes, systemRes] = await Promise.all([
-      fetch(`${base}/redfish/v1/Chassis/1/Thermal`, {
-        headers,
-        signal: ctrl.signal,
-      }),
-      fetch(`${base}/redfish/v1/Chassis/1/Power`, {
-        headers,
-        signal: ctrl.signal,
-      }),
-      fetch(`${base}/redfish/v1/Systems/1`, { headers, signal: ctrl.signal }),
+    const [chassisPath, systemPath] = await Promise.all([
+      discoverFirstMember(base, "Chassis", headers, ctrl.signal),
+      discoverFirstMember(base, "Systems", headers, ctrl.signal),
     ]);
-    if (!thermalRes.ok || !powerRes.ok || !systemRes.ok) return null;
+    if (!chassisPath || !systemPath) return null;
+
+    const [thermalRes, powerRes, systemRes] = await Promise.all([
+      fetch(`${base}/${chassisPath}/Thermal`, {
+        headers,
+        signal: ctrl.signal,
+      }),
+      fetch(`${base}/${chassisPath}/Power`, {
+        headers,
+        signal: ctrl.signal,
+      }),
+      fetch(`${base}/${systemPath}`, { headers, signal: ctrl.signal }),
+    ]);
+    if (!thermalRes.ok || !systemRes.ok) return null;
     const thermal = await thermalRes.json();
-    const power = await powerRes.json();
     const system = await systemRes.json();
+    const power = powerRes.ok ? await powerRes.json() : {};
 
-    const cpuTemp =
-      thermal.Temperatures?.find((t: { Name?: string; ReadingCelsius?: number }) =>
-        /CPU/i.test(t.Name ?? ""),
-      )?.ReadingCelsius ?? 0;
-    const inlet =
-      thermal.Temperatures?.find((t: { Name?: string; ReadingCelsius?: number }) =>
-        /Inlet|Intake/i.test(t.Name ?? ""),
-      )?.ReadingCelsius ?? 0;
+    const findTemp = (rx: RegExp) => {
+      for (const t of thermal.Temperatures ?? []) {
+        if (rx.test(String(t.Name ?? ""))) {
+          const v = t.ReadingCelsius;
+          if (typeof v === "number") return v;
+        }
+      }
+      for (const t of thermal.Temperatures ?? []) {
+        const v = t.ReadingCelsius;
+        if (typeof v === "number") return v;
+      }
+      return 0;
+    };
+    const cpuTemp = findTemp(/CPU|Proc/i);
+    const inlet = findTemp(/Inlet|Intake|Ambient/i);
 
-    type FanItem = { Name?: string; Reading?: number; Status?: { Health?: string } };
-    type PsuItem = { Name?: string; PowerOutputWatts?: number; PowerCapacityWatts?: number; Status?: { Health?: string } };
+    type FanItem = {
+      Name?: string;
+      Reading?: number;
+      Status?: { Health?: string };
+    };
+    type PsuItem = {
+      Name?: string;
+      PowerOutputWatts?: number;
+      PowerCapacityWatts?: number;
+      Status?: { Health?: string };
+    };
 
     const fans = (thermal.Fans ?? []).map((f: FanItem, i: number) => ({
       name: f.Name ?? `Fan${i + 1}`,
@@ -188,12 +212,13 @@ async function tryRedfish(
     }));
     const health = (system.Status?.Health as Health) || "OK";
     const powerState = (system.PowerState as string) === "On" ? "On" : "Off";
+
     return {
       power: powerState,
       health,
       bootProgress: system.BootProgress?.LastState ?? "Unknown",
-      cpuTempC: cpuTemp,
-      inletTempC: inlet,
+      cpuTempC: Math.round(cpuTemp * 10) / 10,
+      inletTempC: Math.round(inlet * 10) / 10,
       fans: fans.length ? fans : undefined,
       psus: psus.length ? psus : undefined,
     };
@@ -252,10 +277,11 @@ Deno.serve(async (req) => {
       });
     }
 
-    let live: Partial<BmcStatus> | null = null;
     const isOffline =
       server.status === "offline" || server.status === "retired";
+    const simulated = simulate(serverId, server.status, server.bmc_protocol);
 
+    let live: Partial<BmcStatus> | null = null;
     if (server.bmc_protocol === "redfish" && !isOffline) {
       const base =
         overrideRedfishBase ||
@@ -269,34 +295,70 @@ Deno.serve(async (req) => {
       }
     }
 
-    const simulated = simulate(
-      serverId,
-      server.status,
-      server.bmc_protocol,
-    );
-    const merged: BmcStatus = {
-      ...simulated,
-      ...(live ?? {}),
-      serverId,
-      alerts: simulated.alerts.concat(
-        live
-          ? []
-          : server.bmc_protocol === "redfish" && !isOffline
-            ? [
-                {
-                  id: uid(),
-                  time: new Date().toISOString(),
-                  level: "Warning",
-                  message: `Redfish 端点 ${server.mgmt_ip} 未响应，当前展示为模拟值（已配置真实 BMC 后将自动切换）。`,
-                },
-              ]
-            : [],
-      ),
-      updatedAt: new Date().toISOString(),
-      history: simulated.history,
-    };
+    let payload: BmcStatus;
+    if (live) {
+      payload = {
+        ...simulated,
+        ...live,
+        serverId,
+        source: "live",
+        protocol: server.bmc_protocol,
+        alerts: [],
+        history: simulated.history,
+        updatedAt: nowIso(),
+        collectedAt: nowIso(),
+      };
+      if (typeof payload.cpuTempC === "number" && payload.cpuTempC > 80) {
+        payload.alerts.push({
+          id: uid(),
+          time: nowIso(),
+          level: "Warning",
+          message: `CPU 温度 ${payload.cpuTempC}°C 超过阈值 80°C`,
+        });
+      }
+      if (payload.health === "Critical") {
+        payload.alerts.push({
+          id: uid(),
+          time: nowIso(),
+          level: "Critical",
+          message: "BMC 报告整机健康状态为 Critical",
+        });
+      }
+    } else {
+      payload = simulated;
+      if (isOffline) {
+        payload.alerts.push({
+          id: uid(),
+          time: nowIso(),
+          level: "Critical",
+          message: "服务器状态为 offline / retired，未尝试连接 BMC。",
+        });
+      } else if (server.bmc_protocol === "ipmi") {
+        payload.alerts.push({
+          id: uid(),
+          time: nowIso(),
+          level: "Warning",
+          message:
+            "当前为 IPMI 设备，需要内网部署 IPMI 采集器才能获取真实数据。当前展示为模拟值。",
+        });
+      } else if (!server.mgmt_ip) {
+        payload.alerts.push({
+          id: uid(),
+          time: nowIso(),
+          level: "Warning",
+          message: "未配置 BMC IP，当前展示为模拟数据。",
+        });
+      } else {
+        payload.alerts.push({
+          id: uid(),
+          time: nowIso(),
+          level: "Warning",
+          message: `Redfish 端点 ${server.mgmt_ip} 未响应，已回退为模拟数据。`,
+        });
+      }
+    }
 
-    return new Response(JSON.stringify(merged), {
+    return new Response(JSON.stringify(payload), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {

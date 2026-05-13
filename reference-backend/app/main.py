@@ -12,11 +12,15 @@ from app.settings import settings
 
 
 async def _poll_all():
+    """Background poller — drives the in-memory history ring buffer for
+    every online server so the trend chart has data even if no operator
+    has opened the detail page yet."""
     db = SessionLocal()
     try:
-        for s in db.query(Server).filter(Server.status == "online").all():
+        servers = db.query(Server).filter(Server.status == "online").all()
+        for s in servers:
             try:
-                await bmc_svc.get_status(s)
+                await bmc_svc.get_status(s, force_refresh=True)
             except Exception:
                 pass
     finally:

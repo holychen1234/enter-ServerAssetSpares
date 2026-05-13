@@ -22,7 +22,7 @@ export default function ServerDetail() {
     queryKey: ["bmc", id],
     queryFn: () => getBmcStatus(id),
     enabled: !!id,
-    refetchInterval: 5000,
+    refetchInterval: 15000,
   });
   const { data: movements = [] } = useQuery({
     queryKey: ["movements"],
@@ -59,7 +59,11 @@ export default function ServerDetail() {
         actions={
           <>
             <StatusBadge kind="server" value={server.status} />
-            <Button variant="outline" size="sm" onClick={() => refetch()}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => getBmcStatus(id, { force: true }).then(() => refetch())}
+            >
               <RefreshCw className={`mr-1 h-4 w-4 ${isFetching ? "animate-spin" : ""}`} /> 刷新 BMC
             </Button>
           </>

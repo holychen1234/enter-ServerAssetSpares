@@ -136,7 +136,13 @@ export async function deleteServer(id: string): Promise<void> {
 }
 
 // ---------- BMC live status ----------
-export async function getBmcStatus(serverId: string): Promise<BmcStatus> {
+export async function getBmcStatus(
+  serverId: string,
+  _opts: { force?: boolean } = {},
+): Promise<BmcStatus> {
+  // The edge function always pulls fresh from the BMC — there is no
+  // server-side cache to bypass — so `force` is accepted for API parity
+  // with the on-prem client but otherwise ignored.
   const { data, error } = await supabase.functions.invoke("bmc-status", {
     body: { serverId },
   });
