@@ -12,6 +12,7 @@ import OutboundList from "./pages/inventory/OutboundList";
 import AuditLog from "./pages/audit/AuditLog";
 import UserList from "./pages/system/UserList";
 import RoleList from "./pages/system/RoleList";
+import ChangePassword from "./pages/system/ChangePassword";
 import { AppLayout } from "./layouts/AppLayout";
 import { RequireAuth, RequireRole } from "./components/auth/RouteGuards";
 
@@ -35,6 +36,7 @@ export const routers = [
       { path: "inventory/inbound", name: "inbound", element: <InboundList /> },
       { path: "inventory/outbound", name: "outbound", element: <OutboundList /> },
       { path: "audit", name: "audit", element: <AuditLog /> },
+      { path: "change-password", name: "change-password", element: <ChangePassword /> },
       {
         path: "system/users",
         name: "system-users",

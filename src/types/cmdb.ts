@@ -130,7 +130,46 @@ export interface AppUser {
   email: string;
   role: Role;
   enabled: boolean;
+  isDeleted?: boolean;
+  passwordChangeRequired?: boolean;
+  failedLoginAttempts?: number;
+  lockedUntil?: string;
   lastLogin?: string;
+}
+
+/** Payload for creating a new user. */
+export interface CreateUserPayload {
+  username: string;
+  name: string;
+  email: string;
+  password: string;
+  role: Role;
+}
+
+/** Payload for changing own password. */
+export interface ChangePasswordPayload {
+  old_password: string;
+  new_password: string;
+}
+
+/** Payload for admin resetting another user's password. */
+export interface ResetPasswordPayload {
+  password: string;
+}
+
+/** Response envelope for paginated user list. */
+export interface UserPage {
+  items: AppUser[];
+  total: number;
+}
+
+/** Filters for user list query. */
+export interface UserFilters {
+  q?: string;
+  role?: Role;
+  enabled?: number;
+  limit?: number;
+  offset?: number;
 }
 
 export interface AuditEntry {

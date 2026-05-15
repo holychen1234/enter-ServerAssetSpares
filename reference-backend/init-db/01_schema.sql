@@ -3,15 +3,19 @@ USE cmdb;
 SET NAMES utf8mb4;
 
 CREATE TABLE IF NOT EXISTS profiles (
-  id            CHAR(36)      NOT NULL PRIMARY KEY,
-  username      VARCHAR(64)   NOT NULL UNIQUE,
-  name          VARCHAR(64)   NOT NULL,
-  email         VARCHAR(128)  NOT NULL,
-  password_hash VARCHAR(255)  NOT NULL,
-  role          ENUM('admin','operator','viewer') NOT NULL DEFAULT 'viewer',
-  enabled       TINYINT(1)    NOT NULL DEFAULT 1,
-  last_login    DATETIME      NULL,
-  created_at    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP
+  id                        CHAR(36)      NOT NULL PRIMARY KEY,
+  username                  VARCHAR(64)   NOT NULL UNIQUE,
+  name                      VARCHAR(64)   NOT NULL,
+  email                     VARCHAR(128)  NOT NULL,
+  password_hash             VARCHAR(255)  NOT NULL,
+  role                      ENUM('admin','operator','viewer') NOT NULL DEFAULT 'viewer',
+  enabled                   TINYINT(1)    NOT NULL DEFAULT 1,
+  is_deleted                TINYINT(1)    NOT NULL DEFAULT 0,
+  password_change_required  TINYINT(1)    NOT NULL DEFAULT 0,
+  failed_login_attempts     INT           NOT NULL DEFAULT 0,
+  locked_until              DATETIME      NULL,
+  last_login                DATETIME      NULL,
+  created_at                DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
 CREATE TABLE IF NOT EXISTS servers (

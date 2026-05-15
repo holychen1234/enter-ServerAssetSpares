@@ -155,8 +155,24 @@ export async function createMovement(
 }
 
 // ---------- Users ----------
-export async function listUsers(): Promise<AppUser[]> {
-  return api<AppUser[]>("/users");
+export async function listUsers(
+  filters: import("@/types/cmdb").UserFilters = {},
+): Promise<import("@/types/cmdb").UserPage> {
+  const params = new URLSearchParams();
+  for (const [k, v] of Object.entries(filters)) {
+    if (v === undefined || v === null || v === "") continue;
+    params.set(k, String(v));
+  }
+  const qs = params.toString();
+  return api<import("@/types/cmdb").UserPage>(
+    `/users${qs ? `?${qs}` : ""}`,
+  );
+}
+
+export async function createUser(
+  data: import("@/types/cmdb").CreateUserPayload,
+): Promise<AppUser> {
+  return api<AppUser>("/users", { method: "POST", body: data });
 }
 
 export async function updateUser(
@@ -164,6 +180,34 @@ export async function updateUser(
   patch: Partial<AppUser>,
 ): Promise<AppUser> {
   return api<AppUser>(`/users/${id}`, { method: "PATCH", body: patch });
+}
+
+export async function deleteUser(id: string): Promise<void> {
+  await api<void>(`/users/${id}`, { method: "DELETE" });
+}
+
+export async function resetUserPassword(
+  id: string,
+  password: string,
+): Promise<void> {
+  await api<void>(`/users/${id}/password`, {
+    method: "PUT",
+    body: { password },
+  });
+}
+
+export async function changeMyPassword(
+  oldPassword: string,
+  newPassword: string,
+): Promise<AppUser> {
+  return api<AppUser>("/auth/password", {
+    method: "PUT",
+    body: { old_password: oldPassword, new_password: newPassword },
+  });
+}
+
+export async function unlockUser(id: string): Promise<void> {
+  await api<void>(`/users/${id}/unlock`, { method: "PUT" });
 }
 
 // ---------- Audit ----------

@@ -122,6 +122,10 @@ export function rowToProfile(r: ProfileRow): AppUser {
     email: r.email,
     role: r.role,
     enabled: r.enabled,
+    isDeleted: (r as any).is_deleted ?? false,
+    passwordChangeRequired: (r as any).password_change_required ?? false,
+    failedLoginAttempts: (r as any).failed_login_attempts ?? 0,
+    lockedUntil: (r as any).locked_until ?? undefined,
     lastLogin: r.last_login ?? undefined,
   };
 }

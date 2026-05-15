@@ -28,6 +28,10 @@ class Profile(Base):
         default="viewer",
     )
     enabled = Column(Integer, nullable=False, default=1)
+    is_deleted = Column(Integer, nullable=False, default=0)
+    password_change_required = Column(Integer, nullable=False, default=0)
+    failed_login_attempts = Column(Integer, nullable=False, default=0)
+    locked_until = Column(DateTime, nullable=True)
     last_login = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 

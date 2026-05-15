@@ -24,6 +24,7 @@ import {
   ShieldCheck,
   LogOut,
   CircuitBoard,
+  Key,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -121,6 +122,9 @@ function UserMenu() {
           <div className="text-xs text-muted-foreground">{user.email}</div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => navigate("/change-password")}>
+          <Key className="mr-2 h-4 w-4" /> 修改密码
+        </DropdownMenuItem>
         <DropdownMenuItem
           onClick={() => {
             signOut();

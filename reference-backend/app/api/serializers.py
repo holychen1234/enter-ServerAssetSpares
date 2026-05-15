@@ -65,6 +65,10 @@ def profile_to_dict(u: Profile) -> dict:
         "email": u.email,
         "role": u.role,
         "enabled": bool(u.enabled),
+        "isDeleted": bool(u.is_deleted),
+        "passwordChangeRequired": bool(u.password_change_required),
+        "failedLoginAttempts": u.failed_login_attempts or 0,
+        "lockedUntil": u.locked_until.isoformat() if u.locked_until else None,
         "lastLogin": u.last_login.isoformat() if u.last_login else None,
     }
 

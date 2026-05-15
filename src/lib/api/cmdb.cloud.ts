@@ -263,13 +263,58 @@ export async function createMovement(
 }
 
 // ---------- Users (profiles) ----------
-export async function listUsers(): Promise<AppUser[]> {
-  const { data, error } = await supabase
+export async function listUsers(
+  filters: import("@/types/cmdb").UserFilters = {},
+): Promise<import("@/types/cmdb").UserPage> {
+  const limit = Math.min(Math.max(filters.limit ?? 50, 1), 200);
+  const offset = Math.max(filters.offset ?? 0, 0);
+
+  let q = supabase
     .from("profiles")
-    .select("*")
-    .order("created_at", { ascending: true });
+    .select("*", { count: "exact" })
+    .eq("is_deleted", false)
+    .order("created_at", { ascending: false });
+
+  if (filters.role) q = q.eq("role", filters.role);
+  if (filters.enabled !== undefined) q = q.eq("enabled", filters.enabled);
+  if (filters.q) {
+    const kw = filters.q.replace(/[%_]/g, "");
+    q = q.or(`username.ilike.%${kw}%,name.ilike.%${kw}%,email.ilike.%${kw}%`);
+  }
+  q = q.range(offset, offset + limit - 1);
+
+  const { data, error, count } = await q;
   if (error) throw error;
-  return (data ?? []).map(rowToProfile);
+  return {
+    items: (data ?? []).map(rowToProfile),
+    total: count ?? (data?.length ?? 0),
+  };
+}
+
+export async function createUser(
+  data: import("@/types/cmdb").CreateUserPayload,
+): Promise<AppUser> {
+  const { data: row, error } = await supabase
+    .from("profiles")
+    .insert({
+      username: data.username,
+      name: data.name,
+      email: data.email,
+      password_hash: data.password, // Supabase Auth handles hashing
+      role: data.role,
+      enabled: true,
+      password_change_required: true,
+    })
+    .select("*")
+    .single();
+  if (error) throw error;
+  await writeAudit(
+    "user.create",
+    `user:${data.username}`,
+    `创建用户 ${data.username}（角色：${data.role}）`,
+    "warn",
+  );
+  return rowToProfile(row);
 }
 
 export async function updateUser(
@@ -282,6 +327,9 @@ export async function updateUser(
   if (patch.email !== undefined) dbPatch.email = patch.email;
   if (patch.role !== undefined) dbPatch.role = patch.role;
   if (patch.enabled !== undefined) dbPatch.enabled = patch.enabled;
+  if (patch.passwordChangeRequired !== undefined)
+    dbPatch.password_change_required = patch.passwordChangeRequired;
+  if (patch.isDeleted !== undefined) dbPatch.is_deleted = patch.isDeleted;
   const { data: row, error } = await supabase
     .from("profiles")
     .update(dbPatch)
@@ -296,6 +344,96 @@ export async function updateUser(
     "warn",
   );
   return rowToProfile(row);
+}
+
+export async function deleteUser(id: string): Promise<void> {
+  const { data: row } = await supabase
+    .from("profiles")
+    .select("username")
+    .eq("id", id)
+    .maybeSingle();
+  const { error } = await supabase
+    .from("profiles")
+    .update({ is_deleted: true, enabled: false })
+    .eq("id", id);
+  if (error) throw error;
+  if (row)
+    await writeAudit(
+      "user.delete",
+      `user:${row.username}`,
+      `删除用户 ${row.username}（软删除）`,
+      "warn",
+    );
+}
+
+export async function resetUserPassword(
+  id: string,
+  password: string,
+): Promise<void> {
+  const { data: row } = await supabase
+    .from("profiles")
+    .select("username")
+    .eq("id", id)
+    .maybeSingle();
+  const { error } = await supabase
+    .from("profiles")
+    .update({
+      password_hash: password,
+      password_change_required: true,
+      failed_login_attempts: 0,
+      locked_until: null,
+    })
+    .eq("id", id);
+  if (error) throw error;
+  if (row)
+    await writeAudit(
+      "user.password_reset",
+      `user:${row.username}`,
+      `重置用户 ${row.username} 的密码`,
+      "warn",
+    );
+}
+
+export async function changeMyPassword(
+  oldPassword: string,
+  newPassword: string,
+): Promise<AppUser> {
+  // Verify old password first by re-authenticating
+  const { data: authUser } = await supabase.auth.getUser();
+  if (!authUser.user?.email) throw new Error("未登录");
+
+  const { error: signInErr } = await supabase.auth.signInWithPassword({
+    email: authUser.user.email,
+    password: oldPassword,
+  });
+  if (signInErr) throw new Error("原密码错误");
+
+  const { error: updateErr } = await supabase.auth.updateUser({
+    password: newPassword,
+  });
+  if (updateErr) throw updateErr;
+
+  // Update profile record
+  await supabase
+    .from("profiles")
+    .update({ password_change_required: false })
+    .eq("id", authUser.user.id);
+
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("id", authUser.user.id)
+    .single();
+  if (!profile) throw new Error("用户档案缺失");
+  return rowToProfile(profile);
+}
+
+export async function unlockUser(id: string): Promise<void> {
+  const { error } = await supabase
+    .from("profiles")
+    .update({ failed_login_attempts: 0, locked_until: null })
+    .eq("id", id);
+  if (error) throw error;
 }
 
 // ---------- Audit ----------
