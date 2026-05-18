@@ -59,7 +59,7 @@ export default function Login() {
               <CircuitBoard className="h-5 w-5" />
             </div>
             <div>
-              <div className="text-lg font-semibold">服务器 CMDB</div>
+              <div className="text-lg font-semibold">主机资产管理</div>
               <div className="text-xs text-primary-foreground/70">Asset & Inventory Console</div>
             </div>
           </div>
@@ -72,7 +72,7 @@ export default function Login() {
               覆盖硬盘、内存、网卡、光模块的入库、出库与领用记录。
             </p>
           </div>
-          <div className="text-xs text-primary-foreground/60">v0.1.0 · 适配私有化内网部署</div>
+          <div className="text-xs text-primary-foreground/60">v0.1.0</div>
         </div>
 
         <Card className="shadow-elevated">
