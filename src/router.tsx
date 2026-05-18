@@ -5,6 +5,7 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import ServerList from "./pages/servers/ServerList";
 import ServerDetail from "./pages/servers/ServerDetail";
+import BmcConsole from "./pages/servers/BmcConsole";
 import PartList from "./pages/inventory/PartList";
 import PartDetail from "./pages/inventory/PartDetail";
 import InboundList from "./pages/inventory/InboundList";
@@ -30,6 +31,7 @@ export const routers = [
       { path: "dashboard", name: "dashboard", element: <Dashboard /> },
       { path: "servers", name: "servers", element: <ServerList /> },
       { path: "servers/:id", name: "server-detail", element: <ServerDetail /> },
+      { path: "servers/:id/bmc", name: "bmc-console", element: <BmcConsole /> },
       { path: "inventory", element: <Navigate to="/inventory/parts" replace /> },
       { path: "inventory/parts", name: "parts", element: <PartList /> },
       { path: "inventory/parts/:id", name: "part-detail", element: <PartDetail /> },

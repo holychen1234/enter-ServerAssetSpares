@@ -18,12 +18,6 @@ const schema = z.object({
 
 type FormData = z.infer<typeof schema>;
 
-const PRESETS = [
-  { username: "admin", password: "admin123", label: "管理员" },
-  { username: "operator", password: "123456", label: "操作员" },
-  { username: "viewer", password: "123456", label: "只读" },
-];
-
 export default function Login() {
   const { signIn, user } = useAuth();
   const navigate = useNavigate();
@@ -53,11 +47,6 @@ export default function Login() {
     } finally {
       setSubmitting(false);
     }
-  };
-
-  const fillPreset = (p: (typeof PRESETS)[number]) => {
-    form.setValue("username", p.username);
-    form.setValue("password", p.password);
   };
 
   return (
@@ -130,16 +119,7 @@ export default function Login() {
               </Button>
             </form>
 
-            <div className="mt-6 rounded-lg border border-dashed border-border bg-muted/40 p-3">
-              <p className="text-xs font-medium text-muted-foreground">演示账号（点击自动填充）</p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {PRESETS.map((p) => (
-                  <Button key={p.username} type="button" size="sm" variant="outline" onClick={() => fillPreset(p)}>
-                    {p.label} · {p.username}
-                  </Button>
-                ))}
-              </div>
-            </div>
+            
           </CardContent>
         </Card>
       </div>

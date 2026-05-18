@@ -40,7 +40,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { ServerForm } from "./ServerForm";
 import { useAuth } from "@/hooks/use-auth";
-import { Server as ServerIcon, Plus, Pencil, Trash2 } from "lucide-react";
+import { Server as ServerIcon, Plus, Pencil, Trash2, Monitor } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 
 export default function ServerList() {
@@ -165,17 +165,15 @@ export default function ServerList() {
                 <TableHead>厂商 / 型号</TableHead>
                 <TableHead>位置</TableHead>
                 <TableHead>IP 地址</TableHead>
-                <TableHead>规格</TableHead>
-                <TableHead>负责人</TableHead>
                 <TableHead className="text-right">操作</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading && (
-                <TableRow><TableCell colSpan={8} className="py-8 text-center text-sm text-muted-foreground">加载中…</TableCell></TableRow>
+                <TableRow><TableCell colSpan={6} className="py-8 text-center text-sm text-muted-foreground">加载中…</TableCell></TableRow>
               )}
               {!isLoading && filtered.length === 0 && (
-                <TableRow><TableCell colSpan={8} className="py-8 text-center text-sm text-muted-foreground">没有匹配的记录</TableCell></TableRow>
+                <TableRow><TableCell colSpan={6} className="py-8 text-center text-sm text-muted-foreground">没有匹配的记录</TableCell></TableRow>
               )}
               {filtered.map((s) => (
                 <TableRow
@@ -209,19 +207,23 @@ export default function ServerList() {
                         <span className="font-mono text-sm">{s.bizIp}</span>
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-muted-foreground">{s.bmcProtocol}</span>
+                        <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wider text-muted-foreground">管理</span>
                         <span className="font-mono text-xs text-muted-foreground">{s.mgmtIp}</span>
                       </div>
                     </div>
                   </TableCell>
-                  <TableCell>
-                    <span className="text-xs text-muted-foreground">
-                      {s.cpuCount}× CPU · {s.memoryGB}GB · {s.diskCount} 盘
-                    </span>
-                  </TableCell>
-                  <TableCell><span className="text-xs">{s.owner}</span></TableCell>
                   <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                     <div className="flex justify-end gap-1">
+                      {s.mgmtIp && (
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => navigate(`/servers/${s.id}/bmc`)}
+                          title="带外控制台"
+                        >
+                          <Monitor className="h-4 w-4" />
+                        </Button>
+                      )}
                       <Button
                         size="icon"
                         variant="ghost"
