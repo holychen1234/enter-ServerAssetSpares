@@ -87,7 +87,7 @@ export default function ServerList() {
     mutationFn: createServer,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["servers"] });
-      toast({ title: "服务器已新增" });
+      toast({ title: "主机已新增" });
       setFormOpen(false);
     },
   });
@@ -96,7 +96,7 @@ export default function ServerList() {
       updateServer(vars.id, vars.patch),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["servers"] });
-      toast({ title: "服务器已更新" });
+      toast({ title: "主机已更新" });
       setFormOpen(false);
     },
   });
@@ -104,7 +104,7 @@ export default function ServerList() {
     mutationFn: deleteServer,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["servers"] });
-      toast({ title: "服务器已删除" });
+      toast({ title: "主机已删除" });
       setToDelete(null);
     },
   });
@@ -112,13 +112,13 @@ export default function ServerList() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="服务器资产"
-        description="管理公司全部服务器，支持搜索、过滤、增删改查"
+        title="主机资产"
+        description="管理公司全部主机，支持搜索、过滤、增删改查"
         icon={<ServerIcon className="h-5 w-5" />}
         actions={
           canEdit && (
             <Button onClick={() => { setEditing(null); setFormOpen(true); }}>
-              <Plus className="mr-1 h-4 w-4" /> 新增服务器
+              <Plus className="mr-1 h-4 w-4" /> 新增主机
             </Button>
           )
         }
@@ -265,7 +265,7 @@ export default function ServerList() {
       <AlertDialog open={!!toDelete} onOpenChange={(v) => !v && setToDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>删除服务器</AlertDialogTitle>
+            <AlertDialogTitle>删除主机</AlertDialogTitle>
             <AlertDialogDescription>
               确认删除 <span className="font-mono text-foreground">{toDelete?.hostname}</span> 吗？该操作不可恢复。
             </AlertDialogDescription>

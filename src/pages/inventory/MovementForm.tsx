@@ -116,9 +116,9 @@ export function MovementForm({ open, defaultType, parts, servers, onClose, onSub
             </Select>
           </Field>
           {showServer && (
-            <Field label="关联服务器" className="sm:col-span-2">
+            <Field label="关联主机" className="sm:col-span-2">
               <Select value={form.watch("relatedServerId") || ""} onValueChange={(v) => form.setValue("relatedServerId", v)}>
-                <SelectTrigger><SelectValue placeholder="选择服务器（可选）" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="选择主机（可选）" /></SelectTrigger>
                 <SelectContent>
                   {servers.map((s) => (
                     <SelectItem key={s.id} value={s.id}>

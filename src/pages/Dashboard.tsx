@@ -89,7 +89,7 @@ export default function Dashboard() {
     <div className="space-y-6">
       <PageHeader
         title="仪表盘"
-        description="服务器资产与备件库存全局概览"
+        description="主机资产与备件库存全局概览"
         icon={<LayoutDashboard className="h-5 w-5" />}
       />
 
@@ -103,7 +103,7 @@ export default function Dashboard() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="shadow-card-soft">
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">服务器状态分布</CardTitle>
+            <CardTitle className="text-base">主机状态分布</CardTitle>
           </CardHeader>
           <CardContent className="h-[260px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -130,7 +130,7 @@ export default function Dashboard() {
         <Card className="shadow-card-soft">
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center justify-between text-base">
-              <span>服务器品牌分布</span>
+              <span>主机品牌分布</span>
               <span className="text-xs font-normal text-muted-foreground">{brandData.length} 个厂商</span>
             </CardTitle>
           </CardHeader>

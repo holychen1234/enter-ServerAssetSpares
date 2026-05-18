@@ -49,7 +49,7 @@ export default function ServerDetail() {
           <ArrowLeft className="mr-1 h-4 w-4" /> 返回
         </Button>
         <Card>
-          <CardContent className="p-8 text-center text-muted-foreground">服务器不存在</CardContent>
+          <CardContent className="p-8 text-center text-muted-foreground">主机不存在</CardContent>
         </Card>
       </div>
     );
@@ -154,7 +154,7 @@ export default function ServerDetail() {
 
         <TabsContent value="parts">
           <Card className="shadow-card-soft">
-            <CardHeader><CardTitle className="text-base">该服务器历史耗材</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-base">该主机历史耗材</CardTitle></CardHeader>
             <CardContent>
               {related.length === 0 ? (
                 <p className="py-6 text-center text-sm text-muted-foreground">暂无关联备件出库记录</p>
@@ -196,7 +196,7 @@ export default function ServerDetail() {
             <CardContent className="p-0">
               {serverLogs.length === 0 ? (
                 <p className="px-6 py-8 text-center text-sm text-muted-foreground">
-                  暂无与该服务器关联的操作记录
+                  暂无与该主机关联的操作记录
                 </p>
               ) : (
                 <div className="divide-y divide-border">

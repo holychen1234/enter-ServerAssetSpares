@@ -156,7 +156,7 @@ export function ServerForm({ open, initial, onClose, onSubmit }: Props) {
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{initial ? "编辑服务器" : "新增服务器"}</DialogTitle>
+          <DialogTitle>{initial ? "编辑主机" : "新增主机"}</DialogTitle>
           <DialogDescription>填写服务器基本信息、机房位置与 BMC 接入参数。</DialogDescription>
         </DialogHeader>
 

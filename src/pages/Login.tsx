@@ -65,7 +65,7 @@ export default function Login() {
           </div>
           <div className="space-y-3">
             <h2 className="text-3xl font-semibold leading-tight">
-              统一管理服务器资产<br />与备件耗材库存
+              统一管理主机资产<br />与备件耗材库存
             </h2>
             <p className="text-sm text-primary-foreground/75">
               支持 Redfish / IPMI 双协议采集 BMC 实时状态，

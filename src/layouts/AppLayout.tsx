@@ -50,7 +50,7 @@ interface NavItem {
 
 const MAIN_NAV: NavItem[] = [
   { to: "/dashboard", label: "仪表盘", icon: LayoutDashboard, end: true },
-  { to: "/servers", label: "服务器资产", icon: Server },
+  { to: "/servers", label: "主机资产", icon: Server },
 ];
 
 const INVENTORY_NAV: NavItem[] = [
@@ -148,7 +148,7 @@ export function AppLayout() {
               <CircuitBoard className="h-4 w-4" />
             </div>
             <div className="flex flex-col leading-tight group-data-[collapsible=icon]:hidden">
-              <span className="text-sm font-semibold text-sidebar-foreground">服务器 CMDB</span>
+              <span className="text-sm font-semibold text-sidebar-foreground">主机资产管理</span>
               <span className="text-[10px] uppercase tracking-wider text-sidebar-foreground/60">Asset Console</span>
             </div>
           </div>
@@ -160,7 +160,7 @@ export function AppLayout() {
         </SidebarContent>
         <SidebarFooter className="border-t border-sidebar-border px-3 py-2">
           <div className="text-[10px] text-sidebar-foreground/50 group-data-[collapsible=icon]:hidden">
-            v0.1.0 · 私有化部署版
+            v0.1.0
           </div>
         </SidebarFooter>
       </Sidebar>
