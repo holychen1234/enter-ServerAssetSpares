@@ -11,6 +11,7 @@ import type { Server } from "@/types/cmdb";
 import { PageHeader } from "@/components/cmdb/PageHeader";
 import { DataTableToolbar } from "@/components/cmdb/DataTableToolbar";
 import { StatusBadge } from "@/components/cmdb/StatusBadge";
+import { ImportDialog } from "@/components/cmdb/ImportDialog";
 import {
   Table,
   TableBody,
@@ -38,10 +39,25 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { ServerForm } from "./ServerForm";
 import { useAuth } from "@/hooks/use-auth";
-import { Server as ServerIcon, Plus, Pencil, Trash2, Monitor } from "lucide-react";
+import {
+  Server as ServerIcon,
+  Plus,
+  Pencil,
+  Trash2,
+  Monitor,
+  Download,
+  Upload,
+} from "lucide-react";
 import { toast } from "@/hooks/use-toast";
+import { exportToCsv, exportToExcel, downloadBlob } from "@/lib/import-export";
 
 export default function ServerList() {
   const navigate = useNavigate();
@@ -60,6 +76,7 @@ export default function ServerList() {
   const [editing, setEditing] = useState<Server | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [toDelete, setToDelete] = useState<Server | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   const idcOptions = useMemo(() => {
     return Array.from(new Set(servers.map((s) => s.location.idc))).sort();
@@ -116,11 +133,39 @@ export default function ServerList() {
         description="管理公司全部主机，支持搜索、过滤、增删改查"
         icon={<ServerIcon className="h-5 w-5" />}
         actions={
-          canEdit && (
-            <Button onClick={() => { setEditing(null); setFormOpen(true); }}>
-              <Plus className="mr-1 h-4 w-4" /> 新增主机
-            </Button>
-          )
+          <div className="flex gap-2">
+            {canEdit && (
+              <>
+                <Button variant="outline" size="sm" onClick={() => setImportOpen(true)}>
+                  <Upload className="mr-1 h-4 w-4" /> 导入
+                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm">
+                      <Download className="mr-1 h-4 w-4" /> 导出
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onClick={() => {
+                      const blob = exportToCsv(filtered);
+                      downloadBlob(blob, `主机资产_${new Date().toISOString().slice(0, 10)}.csv`);
+                    }}>
+                      导出 CSV
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => {
+                      const blob = exportToExcel(filtered);
+                      downloadBlob(blob, `主机资产_${new Date().toISOString().slice(0, 10)}.xlsx`);
+                    }}>
+                      导出 Excel
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <Button onClick={() => { setEditing(null); setFormOpen(true); }}>
+                  <Plus className="mr-1 h-4 w-4" /> 新增主机
+                </Button>
+              </>
+            )}
+          </div>
         }
       />
 
@@ -281,6 +326,12 @@ export default function ServerList() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <ImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={() => queryClient.invalidateQueries({ queryKey: ["servers"] })}
+      />
     </div>
   );
 }
