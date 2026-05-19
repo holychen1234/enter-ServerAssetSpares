@@ -38,10 +38,12 @@ log "构建后端镜像 reference-backend-api:latest..."
 docker build -t reference-backend-api:latest reference-backend/
 ok "后端镜像构建完成"
 
-log "构建前端（使用 node:20-alpine 容器，无需宿主机 Node.js）..."
+log "构建前端（VITE_API_MODE=internal，使用 node:20-alpine 容器）..."
 docker run --rm \
     -v "$SCRIPT_DIR":/app \
     -w /app \
+    -e VITE_API_MODE=internal \
+    -e VITE_INTERNAL_API_BASE=/api \
     node:20-alpine sh -c "
         corepack enable && \
         corepack prepare pnpm@8.6.12 --activate && \
