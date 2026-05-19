@@ -62,9 +62,12 @@ services:
       - ./dist:/usr/share/nginx/html:ro
       - ./reference-backend/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
 
+  # Redfish Mock — 仅开发/演示需要，生产环境无需启动。
+  # 启动方式: docker compose --profile mock up -d redfish-mock
   redfish-mock:
     image: dmtf/redfish-mockup-server:latest
     restart: unless-stopped
+    profiles: [mock]
 
 volumes:
   mysql-data:

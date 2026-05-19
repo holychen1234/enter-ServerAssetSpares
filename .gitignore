@@ -23,3 +23,9 @@ dist-ssr
 *.sln
 *.sw?
 code_template.zip
+
+# 环境变量（含密钥，禁止提交）
+reference-backend/.env
+
+# 数据库备份
+backups/
