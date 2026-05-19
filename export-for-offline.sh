@@ -18,14 +18,10 @@ err()  { echo -e "${RED}[ERR ]${NC}  $*" >&2; }
 OUTPUT="cmdb-offline.tar.gz"
 IMAGES_TAR="cmdb-images.tar"
 
-# ---- 检查 Node.js / pnpm ----
-if ! command -v node &>/dev/null; then
-    err "需要 Node.js 18+，请先安装"
+# ---- 检查 Docker ----
+if ! command -v docker &>/dev/null; then
+    err "需要 Docker，请先安装"
     exit 1
-fi
-if ! command -v pnpm &>/dev/null; then
-    log "安装 pnpm..."
-    npm install -g pnpm@8
 fi
 
 # ---- 拉取基础镜像 ----
@@ -42,9 +38,16 @@ log "构建后端镜像 reference-backend-api:latest..."
 docker build -t reference-backend-api:latest reference-backend/
 ok "后端镜像构建完成"
 
-log "构建前端..."
-pnpm install --no-frozen-lockfile
-pnpm run build:prod
+log "构建前端（使用 node:20-alpine 容器，无需宿主机 Node.js）..."
+docker run --rm \
+    -v "$SCRIPT_DIR":/app \
+    -w /app \
+    node:20-alpine sh -c "
+        corepack enable && \
+        corepack prepare pnpm@8.6.12 --activate && \
+        pnpm install --no-frozen-lockfile && \
+        pnpm run build:prod
+    "
 ok "前端构建完成 (dist/)"
 
 # ---- 导出 Docker 镜像 ----
