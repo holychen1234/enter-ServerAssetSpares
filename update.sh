@@ -181,9 +181,17 @@ fi
 docker cp reference-backend/app/. "$API_CONTAINER":/app/app/
 ok "后端代码已注入容器"
 
+# ---- 更新前端到 web 容器 ----
+WEB_CONTAINER=$(docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" ps -q web 2>/dev/null)
+if [ -n "$WEB_CONTAINER" ] && [ -d "dist" ]; then
+    docker cp dist/. "$WEB_CONTAINER":/usr/share/nginx/html/
+    ok "前端已更新到 web 容器"
+fi
+
 # ---- 重启服务 ----
-log "重启受影响的服务（api + web）..."
-docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" up -d --no-deps --force-recreate api web
+# 用 restart 而不是 --force-recreate，否则 docker cp 注入的代码会被丢弃
+log "重启服务..."
+docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" restart api web
 ok "服务已重启"
 
 # ---- 清理 ----
