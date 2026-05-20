@@ -114,11 +114,16 @@ ok "源码覆盖完成"
 
 # ---- 构建前端 ----
 log "构建前端（VITE_API_MODE=internal）..."
+HOST_ARCH=$(uname -m)
+DOCKER_ARCH="amd64"
+[ "$HOST_ARCH" = "aarch64" ] && DOCKER_ARCH="arm64"
+
 if command -v pnpm &>/dev/null && command -v node &>/dev/null; then
     VITE_API_MODE=internal pnpm install --no-frozen-lockfile
     VITE_API_MODE=internal pnpm run build:prod
 else
     docker run --rm \
+        --platform "linux/$DOCKER_ARCH" \
         -v "$SCRIPT_DIR":/app -w /app \
         -e VITE_API_MODE=internal \
         -e VITE_INTERNAL_API_BASE=/api \
@@ -131,10 +136,17 @@ else
 fi
 ok "前端构建完成"
 
-# ---- 重建后端镜像 ----
-log "重建后端镜像..."
-docker build -t reference-backend-api:latest reference-backend/
-ok "后端镜像构建完成"
+# ---- 更新后端代码 ----
+# 不重建镜像（避免架构/网络问题），直接将代码注入运行中的容器
+log "更新后端代码到 API 容器..."
+API_CONTAINER=$(docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" ps -q api 2>/dev/null)
+if [ -z "$API_CONTAINER" ]; then
+    err "未找到 API 容器，请确保服务正在运行"
+    exit 1
+fi
+# 复制后端代码目录到容器
+docker cp reference-backend/app/. "$API_CONTAINER":/app/app/
+ok "后端代码已注入容器"
 
 # ---- 重启服务 ----
 log "重启受影响的服务（api + web）..."
