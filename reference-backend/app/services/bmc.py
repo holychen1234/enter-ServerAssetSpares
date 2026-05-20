@@ -438,7 +438,7 @@ async def _collect_redfish(server: Server) -> dict | None:
         psus = [
             {
                 "name": ps.get("Name") or f"PSU{i+1}",
-                "watts": int(ps.get("PowerOutputWatts") or 0),
+                "watts": int(ps.get("PowerOutputWatts") or ps.get("LastPowerOutputWatts") or 0),
                 "capacityW": int(ps.get("PowerCapacityWatts") or 800),
                 "status": ((ps.get("Status") or {}).get("Health")) or "OK",
             }
