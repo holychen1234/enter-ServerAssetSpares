@@ -25,13 +25,13 @@ if ! command -v docker &>/dev/null; then
 fi
 
 # ---- 拉取基础镜像 ----
-log "拉取基础镜像..."
-docker pull mysql:8.0
-docker pull python:3.12-slim
-docker pull node:20-alpine
-docker pull nginx:latest
-docker pull dmtf/redfish-mockup-server:latest
-ok "基础镜像拉取完成"
+#log "拉取基础镜像..."
+#docker pull mysql:8.0
+#docker pull python:3.12-slim
+#docker pull node:20-alpine
+#docker pull nginx:latest
+#docker pull dmtf/redfish-mockup-server:latest
+#ok "基础镜像拉取完成"
 
 # ---- 构建应用镜像 ----
 log "构建后端镜像 reference-backend-api:latest..."
@@ -75,7 +75,8 @@ tar czf "$OUTPUT" \
     reference-backend/.env.example \
     reference-backend/init-db/ \
     reference-backend/nginx/ \
-    deploy-offline.sh
+    deploy-offline.sh \
+    update.sh
 
 ok "打包完成: $OUTPUT ($(du -h "$OUTPUT" | cut -f1))"
 echo ""

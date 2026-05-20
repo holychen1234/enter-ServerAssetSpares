@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+# ================================================================
+# 主机资产管理平台 — 离线升级脚本
+# ================================================================
+# 用法:
+#   ./update.sh <github-zip包路径>
+#
+# 示例:
+#   ./update.sh /tmp/enter-ServerAssetSpares-enter-main.zip
+#   ./update.sh ./enter-ServerAssetSpares-enter-main.zip
+#
+# 说明:
+#   1. 备份当前 dist/ 和 .env
+#   2. 解压 zip → 覆盖代码（保留 .env）
+#   3. 前端构建 + 后端镜像重建
+#   4. 重启受影响的容器（api + web）
+# ================================================================
+set -euo pipefail
+
+RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
+log()  { echo -e "${CYAN}[INFO]${NC}  $*"; }
+ok()   { echo -e "${GREEN}[ OK ]${NC}  $*"; }
+warn() { echo -e "${YELLOW}[WARN]${NC}  $*"; }
+err()  { echo -e "${RED}[ERR ]${NC}  $*" >&2; }
+
+SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
+cd "$SCRIPT_DIR"
+
+ZIP_FILE="${1:-}"
+if [ -z "$ZIP_FILE" ]; then
+    echo "用法: $0 <github-zip包路径>"
+    echo "示例: $0 ./enter-ServerAssetSpares-enter-main.zip"
+    exit 1
+fi
+if [ ! -f "$ZIP_FILE" ]; then
+    err "文件不存在: $ZIP_FILE"
+    exit 1
+fi
+
+COMPOSE_PROJECT="cmdb"
+COMPOSE_FILE="docker-compose.yml"
+BACKUP_DIR="backups"
+TMP_DIR=".update-tmp"
+
+# ---- 前置检查 ----
+if ! command -v docker &>/dev/null; then
+    err "未找到 docker，请先安装 Docker 24+"
+    exit 1
+fi
+if ! docker compose version &>/dev/null; then
+    err "未找到 docker compose v2 插件"
+    exit 1
+fi
+
+# ---- 备份 ----
+log "备份数据库..."
+mkdir -p "$BACKUP_DIR"
+TS=$(date +%Y%m%d-%H%M%S)
+ENV_FILE="reference-backend/.env"
+if [ -f "$ENV_FILE" ]; then
+    set -a; source "$ENV_FILE"; set +a
+    docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" exec -T mysql \
+        mysqldump -u"${MYSQL_USER:-cmdb}" -p"${MYSQL_PASSWORD:-cmdb123}" \
+        --single-transaction --routines --triggers "${MYSQL_DATABASE:-cmdb}" \
+        2>/dev/null | gzip > "$BACKUP_DIR/pre-update-${TS}.sql.gz"
+    ok "备份完成: $BACKUP_DIR/pre-update-${TS}.sql.gz"
+else
+    warn ".env 不存在，跳过数据库备份"
+fi
+
+# ---- 备份当前 dist 和 .env ----
+log "保留运行环境配置..."
+cp "$ENV_FILE" .env.bak 2>/dev/null || true
+if [ -d "dist" ]; then
+    mv dist dist.bak
+    ok "当前 dist/ 已备份为 dist.bak（构建失败可回滚）"
+fi
+
+# ---- 解压 ----
+log "解压 $ZIP_FILE ..."
+rm -rf "$TMP_DIR"
+mkdir -p "$TMP_DIR"
+unzip -qo "$ZIP_FILE" -d "$TMP_DIR"
+
+# GitHub zip 会包一层目录，自动找到它
+UNPACK_DIR="$TMP_DIR"
+if [ -d "$TMP_DIR/enter-ServerAssetSpares-enter-main" ]; then
+    UNPACK_DIR="$TMP_DIR/enter-ServerAssetSpares-enter-main"
+elif [ -d "$TMP_DIR/enter-ServerAssetSpares-main" ]; then
+    UNPACK_DIR="$TMP_DIR/enter-ServerAssetSpares-main"
+fi
+
+log "覆盖源代码..."
+# 只覆盖受版本控制的关键目录，保留本地配置和备份
+for item in src reference-backend public supabase index.html \
+    package.json pnpm-lock.yaml vite.config.ts tsconfig.json \
+    tsconfig.app.json tsconfig.node.json tailwind.config.ts \
+    postcss.config.js components.json eslint.config.js; do
+    if [ -e "$UNPACK_DIR/$item" ]; then
+        rm -rf "$item" 2>/dev/null || true
+        cp -a "$UNPACK_DIR/$item" "$item"
+    fi
+done
+
+# 还原 .env
+if [ -f .env.bak ]; then
+    cp .env.bak "$ENV_FILE"
+    rm .env.bak
+    ok ".env 已还原"
+fi
+
+rm -rf "$TMP_DIR"
+ok "源码覆盖完成"
+
+# ---- 构建前端 ----
+log "构建前端（VITE_API_MODE=internal）..."
+if command -v pnpm &>/dev/null && command -v node &>/dev/null; then
+    VITE_API_MODE=internal pnpm install --no-frozen-lockfile
+    VITE_API_MODE=internal pnpm run build:prod
+else
+    docker run --rm \
+        -v "$SCRIPT_DIR":/app -w /app \
+        -e VITE_API_MODE=internal \
+        -e VITE_INTERNAL_API_BASE=/api \
+        node:20-alpine sh -c "
+            corepack enable && \
+            corepack prepare pnpm@8.6.12 --activate && \
+            pnpm install --no-frozen-lockfile && \
+            pnpm run build:prod
+        "
+fi
+ok "前端构建完成"
+
+# ---- 重建后端镜像 ----
+log "重建后端镜像..."
+docker build -t reference-backend-api:latest reference-backend/
+ok "后端镜像构建完成"
+
+# ---- 重启服务 ----
+log "重启受影响的服务（api + web）..."
+docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" up -d --no-deps --force-recreate api web
+ok "服务已重启"
+
+# ---- 清理 ----
+rm -rf dist.bak
+
+echo ""
+ok "升级完成"
+echo ""
+echo "  访问控制台确认功能正常。"
+echo "  如遇问题可回滚数据库:"
+echo "    gunzip -c $BACKUP_DIR/pre-update-${TS}.sql.gz | docker compose -f $COMPOSE_FILE -p $COMPOSE_PROJECT exec -T mysql mysql -u"'${MYSQL_USER}'" -p"'${MYSQL_PASSWORD}'" "'${MYSQL_DATABASE}'"
