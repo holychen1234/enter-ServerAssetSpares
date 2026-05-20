@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS stock_movements (
   related_server_id   CHAR(36)     NULL,
   reason              VARCHAR(255) NOT NULL,
   created_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT fk_movement_part   FOREIGN KEY (part_id)           REFERENCES parts(id),
+  CONSTRAINT fk_movement_part   FOREIGN KEY (part_id)           REFERENCES parts(id) ON DELETE CASCADE,
   CONSTRAINT fk_movement_server FOREIGN KEY (related_server_id) REFERENCES servers(id) ON DELETE SET NULL,
   INDEX idx_movements_part   (part_id),
   INDEX idx_movements_server (related_server_id),

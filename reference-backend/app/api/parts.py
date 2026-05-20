@@ -111,6 +111,8 @@ def delete_part(
     if not p:
         raise HTTPException(404, "part not found")
     label = f"part:{p.brand} {p.model}"
+    # Delete associated stock movements first to satisfy FK constraint
+    db.query(StockMovement).filter(StockMovement.part_id == pid).delete()
     db.delete(p)
     db.add(
         AuditLog(
