@@ -112,17 +112,24 @@ fi
 rm -rf "$TMP_DIR"
 ok "源码覆盖完成"
 
-# ---- 构建前端 ----
-log "构建前端（VITE_API_MODE=internal）..."
-HOST_ARCH=$(uname -m)
-DOCKER_ARCH="amd64"
-[ "$HOST_ARCH" = "aarch64" ] && DOCKER_ARCH="arm64"
-
-if command -v pnpm &>/dev/null && command -v node &>/dev/null; then
+# ---- 更新前端 ----
+# 优先使用 zip 包中预构建好的 dist/，避免架构/环境问题
+if [ -d "$UNPACK_DIR/dist" ]; then
+    log "使用 zip 包中的预构建 dist/..."
+    rm -rf dist 2>/dev/null || true
+    cp -a "$UNPACK_DIR/dist" dist
+    ok "已使用预构建前端（跳过编译）"
+elif command -v pnpm &>/dev/null && command -v node &>/dev/null; then
+    log "本地构建前端（VITE_API_MODE=internal）..."
     VITE_API_MODE=internal pnpm install --no-frozen-lockfile
     VITE_API_MODE=internal pnpm run build:prod
-else
-    docker run --rm \
+    ok "前端构建完成"
+elif command -v docker &>/dev/null && docker compose version &>/dev/null; then
+    HOST_ARCH=$(uname -m)
+    DOCKER_ARCH="amd64"
+    [ "$HOST_ARCH" = "aarch64" ] && DOCKER_ARCH="arm64"
+    log "Docker 构建前端（VITE_API_MODE=internal, $DOCKER_ARCH）..."
+    if ! docker run --rm \
         --platform "linux/$DOCKER_ARCH" \
         -v "$SCRIPT_DIR":/app -w /app \
         -e VITE_API_MODE=internal \
@@ -132,9 +139,22 @@ else
             corepack prepare pnpm@8.6.12 --activate && \
             pnpm install --no-frozen-lockfile && \
             pnpm run build:prod
-        "
+        "; then
+        warn "Docker 构建失败（可能是架构不匹配），回退使用现有 dist/"
+        if [ ! -d "dist" ]; then
+            err "dist/ 不存在且无法构建，请上传包含预构建 dist/ 的 zip 包"
+            exit 1
+        fi
+    else
+        ok "前端构建完成"
+    fi
+else
+    warn "无 node/pnpm 也无 Docker，使用现有 dist/"
+    if [ ! -d "dist" ]; then
+        err "dist/ 不存在，请上传包含预构建 dist/ 的 zip 包"
+        exit 1
+    fi
 fi
-ok "前端构建完成"
 
 # ---- 更新后端代码 ----
 # 不重建镜像（避免架构/网络问题），直接将代码注入运行中的容器
