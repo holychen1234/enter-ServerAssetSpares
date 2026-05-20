@@ -345,17 +345,49 @@ async def _redfish_recent_logs(
     return entries
 
 
+async def _redfish_session_auth(
+    client: httpx.AsyncClient, base: str, user: str, password: str
+) -> str | None:
+    """Create a Redfish session and return the X-Auth-Token.
+
+    Many BMCs (Inspur, HPE, Dell iDRAC 9+) require session-based auth
+    instead of HTTP Basic. Returns None if the BMC doesn't support it.
+    """
+    try:
+        r = await client.post(
+            f"{base}/redfish/v1/SessionService/Sessions",
+            json={"UserName": user, "Password": password},
+        )
+        if r.status_code in (200, 201):
+            token = r.headers.get("X-Auth-Token")
+            if token:
+                # Also read Location header to get the session URI for cleanup
+                return token
+    except Exception:
+        pass
+    return None
+
+
 async def _collect_redfish(server: Server) -> dict | None:
     base = _redfish_base(server)
-    auth: tuple[str, str] | None = None
-    if server.bmc_user and server.bmc_password:
-        auth = (server.bmc_user, server.bmc_password)
     timeout = httpx.Timeout(settings.redfish_timeout_seconds)
+    has_creds = bool(server.bmc_user and server.bmc_password)
 
     try:
         async with httpx.AsyncClient(
-            timeout=timeout, verify=False, auth=auth, follow_redirects=True
+            timeout=timeout, verify=False, follow_redirects=True
         ) as client:
+            # Try session auth first (required by Inspur & many enterprise BMCs),
+            # fall back to Basic auth on the client if session isn't supported.
+            session_token: str | None = None
+            if has_creds:
+                session_token = await _redfish_session_auth(
+                    client, base, server.bmc_user, server.bmc_password
+                )
+                if session_token:
+                    client.headers["X-Auth-Token"] = session_token
+                else:
+                    client.auth = (server.bmc_user, server.bmc_password)
             # Discover collection members in parallel
             chassis_path, system_path = await asyncio.gather(
                 _redfish_first_member(client, base, "Chassis"),
