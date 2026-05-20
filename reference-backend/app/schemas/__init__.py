@@ -177,8 +177,43 @@ class HistoryPoint(BaseModel):
     power: float
 
 
+class ProcessorSummaryModel(BaseModel):
+    count: int
+    model: str
+
+
+class MemorySummaryModel(BaseModel):
+    total_gib: float = Field(..., alias="totalGiB")
+
+    class Config:
+        populate_by_name = True
+
+
+class DiskDriveModel(BaseModel):
+    name: str
+    model: str
+    capacity_gb: float = Field(..., alias="capacityGB")
+    media_type: str = Field(..., alias="mediaType")
+    status: Literal["OK", "Warning", "Critical"] = "OK"
+
+    class Config:
+        populate_by_name = True
+
+
+class LogEntryModel(BaseModel):
+    id: str
+    severity: str
+    message: str
+    created_at: str = Field(..., alias="createdAt")
+
+    class Config:
+        populate_by_name = True
+
+
 class BmcStatus(BaseModel):
     server_id: str = Field(..., alias="serverId")
+    source: str = "simulated"
+    protocol: str = "redfish"
     power: Literal["On", "Off"]
     health: Literal["OK", "Warning", "Critical"]
     boot_progress: str = Field(..., alias="bootProgress")
@@ -189,6 +224,11 @@ class BmcStatus(BaseModel):
     alerts: list[AlertItem]
     history: list[HistoryPoint]
     updated_at: datetime = Field(..., alias="updatedAt")
+    collected_at: Optional[datetime] = Field(None, alias="collectedAt")
+    processor_summary: Optional[ProcessorSummaryModel] = Field(None, alias="processorSummary")
+    memory_summary: Optional[MemorySummaryModel] = Field(None, alias="memorySummary")
+    drives: Optional[list[DiskDriveModel]] = None
+    recent_logs: Optional[list[LogEntryModel]] = Field(None, alias="recentLogs")
 
     class Config:
         populate_by_name = True

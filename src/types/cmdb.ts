@@ -86,6 +86,25 @@ export interface BmcStatus {
   updatedAt: string;
   /** Last time a real (non-simulated) sample was collected. */
   collectedAt?: string;
+  /** CPU summary from BMC (Redfish ProcessorSummary). */
+  processorSummary?: { count: number; model: string };
+  /** Memory summary from BMC (Redfish MemorySummary). */
+  memorySummary?: { totalGiB: number };
+  /** Storage drives discovered via Redfish. */
+  drives?: {
+    name: string;
+    model: string;
+    capacityGB: number;
+    mediaType: string;
+    status: string;
+  }[];
+  /** Recent BMC log entries (Redfish LogServices). */
+  recentLogs?: {
+    id: string;
+    severity: string;
+    message: string;
+    createdAt: string;
+  }[];
 }
 
 export type PartCategory = "disk" | "memory" | "nic" | "optical" | "other";

@@ -127,6 +127,59 @@ def _simulate(server: Server) -> dict:
         for i in range(11, -1, -1)
     ]
 
+    cpu_models = [
+        "Intel Xeon Gold 6248R",
+        "Intel Xeon Silver 4314",
+        "AMD EPYC 7543",
+        "Intel Xeon Platinum 8358P",
+    ]
+    proc_model = cpu_models[(seed + 3) % len(cpu_models)]
+    proc_count = 2 if seed % 3 != 0 else 1
+
+    disk_types = ["SSD", "HDD"]
+    drive_models_ssd = [
+        "Samsung PM9A3 960GB",
+        "Intel D7-P5620 1.6TB",
+        "Micron 7450 MAX 800GB",
+    ]
+    drive_models_hdd = [
+        "Seagate Exos X20 18TB",
+        "WD Gold 16TB",
+        "Toshiba MG09 18TB",
+    ]
+    drives = []
+    for i in range(4 if seed % 2 == 0 else 6):
+        is_ssd = (i + seed) % 2 == 0
+        dtype = "SSD" if is_ssd else "HDD"
+        dmodels = drive_models_ssd if is_ssd else drive_models_hdd
+        drives.append(
+            {
+                "name": f"Disk.Bay.{i+1}",
+                "model": dmodels[(i + seed) % len(dmodels)],
+                "capacityGB": 960 + i * 480 if is_ssd else 16000 + i * 2000,
+                "mediaType": dtype,
+                "status": "OK" if not is_offline else "Critical",
+            }
+        )
+
+    log_samples = [
+        "System: Power restored",
+        "System: BMC firmware update completed",
+        "Chassis: Intake temperature sensor threshold warning cleared",
+        "Storage: Drive rebuild completed successfully",
+        "System: User 'admin' logged in via SSH",
+        "Network: Ethernet link on NIC1 restored",
+    ]
+    recent_logs = [
+        {
+            "id": f"Log{i+1}",
+            "severity": "OK" if (i + seed) % 3 != 0 else "Warning",
+            "message": log_samples[(i + seed) % len(log_samples)],
+            "createdAt": _now_iso(),
+        }
+        for i in range(6)
+    ]
+
     return {
         "serverId": server.id,
         "source": "simulated",
@@ -141,6 +194,18 @@ def _simulate(server: Server) -> dict:
         "alerts": [],
         "history": history,
         "updatedAt": _now_iso(),
+        "processorSummary": (
+            {"count": proc_count, "model": proc_model}
+            if not is_offline
+            else None
+        ),
+        "memorySummary": (
+            {"totalGiB": 256 + (seed % 5) * 128}
+            if not is_offline
+            else None
+        ),
+        "drives": drives,
+        "recentLogs": recent_logs,
     }
 
 
@@ -196,6 +261,87 @@ def _pick_temp(temps: list[dict], pattern: str) -> float:
         if isinstance(v, (int, float)):
             return float(v)
     return 0.0
+
+
+async def _redfish_storage_drives(
+    client: httpx.AsyncClient, base: str, system_path: str
+) -> list[dict]:
+    """Discover drives under ``/Systems/X/Storage``.
+
+    Storage members carry a ``Drives`` array of ``@odata.id`` references.  We
+    resolve each to a full Drive resource so we can read Name, Model,
+    CapacityBytes, MediaType, and Status.
+    """
+    drives: list[dict] = []
+    storage_coll = await client.get(f"{base}/{system_path}/Storage")
+    if storage_coll.status_code != 200:
+        return drives
+    members = (storage_coll.json() or {}).get("Members") or []
+    for m in members:
+        storage_href = m.get("@odata.id")
+        if not storage_href:
+            continue
+        storage_res = await client.get(f"{base}{storage_href}")
+        if storage_res.status_code != 200:
+            continue
+        storage: dict = storage_res.json() or {}
+        for dref in storage.get("Drives") or []:
+            dhref = dref.get("@odata.id") if isinstance(dref, dict) else None
+            if not dhref:
+                continue
+            dr = await client.get(f"{base}{dhref}")
+            if dr.status_code != 200:
+                continue
+            d = dr.json() or {}
+            cap_bytes = d.get("CapacityBytes") or 0
+            drives.append(
+                {
+                    "name": d.get("Name") or d.get("Id") or "?",
+                    "model": d.get("Model") or "—",
+                    "capacityGB": round(cap_bytes / (1024**3), 0) if cap_bytes else 0,
+                    "mediaType": d.get("MediaType") or "—",
+                    "status": ((d.get("Status") or {}).get("Health")) or "OK",
+                }
+            )
+    return drives
+
+
+async def _redfish_recent_logs(
+    client: httpx.AsyncClient, base: str
+) -> list[dict]:
+    """Read the last few entries from the first Manager LogService."""
+    entries: list[dict] = []
+    mgr_coll = await client.get(f"{base}/redfish/v1/Managers")
+    if mgr_coll.status_code != 200:
+        return entries
+    mgr_members = (mgr_coll.json() or {}).get("Members") or []
+    if not mgr_members:
+        return entries
+    mgr_href = mgr_members[0].get("@odata.id")
+    if not mgr_href:
+        return entries
+    ls_coll = await client.get(f"{base}{mgr_href}/LogServices")
+    if ls_coll.status_code != 200:
+        return entries
+    ls_members = (ls_coll.json() or {}).get("Members") or []
+    if not ls_members:
+        return entries
+    ls_href = ls_members[0].get("@odata.id")
+    if not ls_href:
+        return entries
+    ent_coll = await client.get(f"{base}{ls_href}/Entries?$top=10")
+    if ent_coll.status_code != 200:
+        return entries
+    for e in (ent_coll.json() or {}).get("Members") or []:
+        entries.append(
+            {
+                "id": e.get("Id") or "?",
+                "severity": e.get("Severity") or "OK",
+                "message": e.get("Message") or "—",
+                "createdAt": e.get("Created") or "",
+            }
+        )
+    return entries
 
 
 async def _collect_redfish(server: Server) -> dict | None:
@@ -263,6 +409,30 @@ async def _collect_redfish(server: Server) -> dict | None:
         if consumed_w == 0 and psus:
             consumed_w = sum(p["watts"] for p in psus)
 
+        # CPU / Memory summary — extracted from the System resource we already
+        # fetched, so these are "free" (no extra HTTP round-trips).
+        proc_sum = system.get("ProcessorSummary") or {}
+        mem_sum = system.get("MemorySummary") or {}
+        processor = (
+            {
+                "count": int(proc_sum.get("Count") or 0),
+                "model": str(proc_sum.get("Model") or ""),
+            }
+            if proc_sum
+            else None
+        )
+        memory = (
+            {"totalGiB": float(mem_sum.get("TotalSystemMemoryGiB") or 0)}
+            if mem_sum
+            else None
+        )
+
+        # Storage drive discovery and log entries — run concurrently with the
+        # same client (connection pool reuse).
+        drives_future = _redfish_storage_drives(client, base, system_path)
+        logs_future = _redfish_recent_logs(client, base)
+        drives, logs = await asyncio.gather(drives_future, logs_future)
+
         return {
             "power": "On" if (system.get("PowerState") == "On") else "Off",
             "health": ((system.get("Status") or {}).get("Health")) or "OK",
@@ -275,6 +445,10 @@ async def _collect_redfish(server: Server) -> dict | None:
             "fans": fans or None,
             "psus": psus or None,
             "_powerWatts": consumed_w,
+            "processorSummary": processor,
+            "memorySummary": memory,
+            "drives": drives or None,
+            "recentLogs": logs or None,
         }
     except Exception as e:
         logger.warning("redfish poll failed for %s: %s", server.id, e)

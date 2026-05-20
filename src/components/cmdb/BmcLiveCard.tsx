@@ -5,8 +5,12 @@ import { StatusBadge } from "@/components/cmdb/StatusBadge";
 import {
   Activity,
   AlertTriangle,
+  Cpu,
+  HardDrive,
+  MemoryStickIcon as MemoryIcon,
   Power,
   Radio,
+  ScrollText,
   Thermometer,
   Wind,
   Zap,
@@ -47,9 +51,17 @@ function SourceBadge({ status }: { status: BmcStatus }) {
   );
 }
 
+function healthColor(h: string) {
+  if (h === "OK") return "bg-success/10 text-success border-success/30";
+  if (h === "Warning") return "bg-warning/10 text-warning border-warning/30";
+  return "bg-danger/10 text-danger border-danger/30";
+}
+
 export function BmcLiveCard({ status, loading }: Props) {
   return (
     <div className="grid gap-4 lg:grid-cols-3">
+      {/* ===== Row 1: Overall + CPU/Memory + Chart ===== */}
+
       <Card className="lg:col-span-1 shadow-card-soft">
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
@@ -106,7 +118,51 @@ export function BmcLiveCard({ status, loading }: Props) {
         </CardContent>
       </Card>
 
-      <Card className="lg:col-span-2 shadow-card-soft">
+      {/* CPU / Memory — BMC real-time readings, distinct from static asset info */}
+      <Card className="lg:col-span-1 shadow-card-soft">
+        <CardHeader className="pb-3">
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Cpu className="h-4 w-4 text-primary" /> 处理器 / 内存
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {status.processorSummary ? (
+            <div className="rounded-lg border border-border bg-muted/40 px-3 py-3">
+              <div className="text-xs text-muted-foreground">CPU</div>
+              <div className="mt-1 text-sm font-medium text-foreground">
+                {status.processorSummary.count}
+                <span className="text-muted-foreground">× </span>
+                {status.processorSummary.model}
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-border bg-muted/40 px-3 py-3 text-sm text-muted-foreground">
+              未获取到 CPU 信息
+            </div>
+          )}
+          {status.memorySummary ? (
+            <div className="rounded-lg border border-border bg-muted/40 px-3 py-3">
+              <div className="text-xs text-muted-foreground">内存总量</div>
+              <div className="mt-1 flex items-baseline gap-1">
+                <span className="font-mono text-lg font-medium text-foreground">
+                  {status.memorySummary.totalGiB}
+                </span>
+                <span className="text-sm text-muted-foreground">GiB</span>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-border bg-muted/40 px-3 py-3 text-sm text-muted-foreground">
+              未获取到内存信息
+            </div>
+          )}
+          <div className="text-[11px] text-muted-foreground">
+            BMC 实时读取值，可能与静态资产信息存在差异
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Temperature / power trend */}
+      <Card className="lg:col-span-1 shadow-card-soft">
         <CardHeader className="pb-3">
           <CardTitle className="text-base">指标趋势（近 60 分钟）</CardTitle>
         </CardHeader>
@@ -122,6 +178,10 @@ export function BmcLiveCard({ status, loading }: Props) {
                   <stop offset="0%" stopColor="hsl(var(--chart-3))" stopOpacity={0.4} />
                   <stop offset="100%" stopColor="hsl(var(--chart-3))" stopOpacity={0} />
                 </linearGradient>
+                <linearGradient id="powerFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="hsl(var(--chart-5))" stopOpacity={0.4} />
+                  <stop offset="100%" stopColor="hsl(var(--chart-5))" stopOpacity={0} />
+                </linearGradient>
               </defs>
               <CartesianGrid stroke="hsl(var(--border))" strokeDasharray="3 3" />
               <XAxis dataKey="t" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
@@ -136,10 +196,60 @@ export function BmcLiveCard({ status, loading }: Props) {
               />
               <Area type="monotone" dataKey="cpu" stroke="hsl(var(--chart-1))" fill="url(#cpuFill)" name="CPU°C" />
               <Area type="monotone" dataKey="inlet" stroke="hsl(var(--chart-3))" fill="url(#inletFill)" name="进风°C" />
+              <Area type="monotone" dataKey="power" stroke="hsl(var(--chart-5))" fill="url(#powerFill)" name="功耗 W" />
             </AreaChart>
           </ResponsiveContainer>
         </CardContent>
       </Card>
+
+      {/* ===== Row 2: Disk Drives (full width) ===== */}
+      {status.drives && status.drives.length > 0 && (
+        <Card className="lg:col-span-3 shadow-card-soft">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <HardDrive className="h-4 w-4 text-primary" /> 硬盘
+              <span className="text-xs font-normal text-muted-foreground">
+                共 {status.drives.length} 块
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="divide-y divide-border">
+              {status.drives.map((d) => (
+                <div
+                  key={d.name}
+                  className="flex items-center gap-4 px-6 py-3"
+                >
+                  <span
+                    className={
+                      "inline-block rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wider " +
+                      healthColor(d.status)
+                    }
+                  >
+                    {d.status}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline gap-2">
+                      <span className="font-mono text-sm font-medium text-foreground">
+                        {d.name}
+                      </span>
+                      <span className="text-xs text-muted-foreground">{d.mediaType}</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">{d.model}</p>
+                  </div>
+                  <div className="text-right font-mono text-sm font-medium text-foreground">
+                    {d.capacityGB >= 1000
+                      ? `${(d.capacityGB / 1000).toFixed(1)} TB`
+                      : `${d.capacityGB} GB`}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ===== Row 3: Fans + PSU ===== */}
 
       <Card className="lg:col-span-2 shadow-card-soft">
         <CardHeader className="pb-3">
@@ -185,6 +295,43 @@ export function BmcLiveCard({ status, loading }: Props) {
         </CardContent>
       </Card>
 
+      {/* ===== Row 4: Recent BMC Logs (full width) ===== */}
+      {status.recentLogs && status.recentLogs.length > 0 && (
+        <Card className="lg:col-span-3 shadow-card-soft">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <ScrollText className="h-4 w-4 text-info" /> 最近 BMC 日志
+              <span className="text-xs font-normal text-muted-foreground">
+                共 {status.recentLogs.length} 条
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="divide-y divide-border">
+              {status.recentLogs.map((l) => (
+                <div key={l.id} className="flex items-start gap-3 px-6 py-3">
+                  <span
+                    className={
+                      "mt-0.5 inline-block rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wider " +
+                      healthColor(l.severity)
+                    }
+                  >
+                    {l.severity}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-foreground">{l.message}</p>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">
+                      {l.createdAt ? new Date(l.createdAt).toLocaleString() : "—"}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ===== Row 5: Alerts ===== */}
       {status.alerts.length > 0 && (
         <Card className="lg:col-span-3 shadow-card-soft border-warning/40">
           <CardHeader className="pb-3">
