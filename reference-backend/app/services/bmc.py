@@ -266,43 +266,41 @@ def _pick_temp(temps: list[dict], pattern: str) -> float:
 async def _redfish_storage_drives(
     client: httpx.AsyncClient, base: str, system_path: str
 ) -> list[dict]:
-    """Discover drives under ``/Systems/X/Storage``.
-
-    Storage members carry a ``Drives`` array of ``@odata.id`` references.  We
-    resolve each to a full Drive resource so we can read Name, Model,
-    CapacityBytes, MediaType, and Status.
-    """
+    """Discover drives under ``/Systems/X/Storage``."""
     drives: list[dict] = []
-    storage_coll = await client.get(f"{base}/{system_path}/Storage")
-    if storage_coll.status_code != 200:
-        return drives
-    members = (storage_coll.json() or {}).get("Members") or []
-    for m in members:
-        storage_href = m.get("@odata.id")
-        if not storage_href:
-            continue
-        storage_res = await client.get(f"{base}{storage_href}")
-        if storage_res.status_code != 200:
-            continue
-        storage: dict = storage_res.json() or {}
-        for dref in storage.get("Drives") or []:
-            dhref = dref.get("@odata.id") if isinstance(dref, dict) else None
-            if not dhref:
+    try:
+        storage_coll = await client.get(f"{base}/{system_path}/Storage")
+        if storage_coll.status_code != 200:
+            return drives
+        members = (storage_coll.json() or {}).get("Members") or []
+        for m in members:
+            storage_href = m.get("@odata.id")
+            if not storage_href:
                 continue
-            dr = await client.get(f"{base}{dhref}")
-            if dr.status_code != 200:
+            storage_res = await client.get(f"{base}{storage_href}")
+            if storage_res.status_code != 200:
                 continue
-            d = dr.json() or {}
-            cap_bytes = d.get("CapacityBytes") or 0
-            drives.append(
-                {
-                    "name": d.get("Name") or d.get("Id") or "?",
-                    "model": d.get("Model") or "—",
-                    "capacityGB": round(cap_bytes / (1024**3), 0) if cap_bytes else 0,
-                    "mediaType": d.get("MediaType") or "—",
-                    "status": ((d.get("Status") or {}).get("Health")) or "OK",
-                }
-            )
+            storage: dict = storage_res.json() or {}
+            for dref in storage.get("Drives") or []:
+                dhref = dref.get("@odata.id") if isinstance(dref, dict) else None
+                if not dhref:
+                    continue
+                dr = await client.get(f"{base}{dhref}")
+                if dr.status_code != 200:
+                    continue
+                d = dr.json() or {}
+                cap_bytes = d.get("CapacityBytes") or 0
+                drives.append(
+                    {
+                        "name": d.get("Name") or d.get("Id") or "?",
+                        "model": d.get("Model") or "—",
+                        "capacityGB": round(cap_bytes / (1024**3), 0) if cap_bytes else 0,
+                        "mediaType": d.get("MediaType") or "—",
+                        "status": ((d.get("Status") or {}).get("Health")) or "OK",
+                    }
+                )
+    except Exception:
+        pass  # Storage isn't critical — keep returning what we have
     return drives
 
 
@@ -311,36 +309,39 @@ async def _redfish_recent_logs(
 ) -> list[dict]:
     """Read the last few entries from the first Manager LogService."""
     entries: list[dict] = []
-    mgr_coll = await client.get(f"{base}/redfish/v1/Managers")
-    if mgr_coll.status_code != 200:
-        return entries
-    mgr_members = (mgr_coll.json() or {}).get("Members") or []
-    if not mgr_members:
-        return entries
-    mgr_href = mgr_members[0].get("@odata.id")
-    if not mgr_href:
-        return entries
-    ls_coll = await client.get(f"{base}{mgr_href}/LogServices")
-    if ls_coll.status_code != 200:
-        return entries
-    ls_members = (ls_coll.json() or {}).get("Members") or []
-    if not ls_members:
-        return entries
-    ls_href = ls_members[0].get("@odata.id")
-    if not ls_href:
-        return entries
-    ent_coll = await client.get(f"{base}{ls_href}/Entries?$top=10")
-    if ent_coll.status_code != 200:
-        return entries
-    for e in (ent_coll.json() or {}).get("Members") or []:
-        entries.append(
-            {
-                "id": e.get("Id") or "?",
-                "severity": e.get("Severity") or "OK",
-                "message": e.get("Message") or "—",
-                "createdAt": e.get("Created") or "",
-            }
-        )
+    try:
+        mgr_coll = await client.get(f"{base}/redfish/v1/Managers")
+        if mgr_coll.status_code != 200:
+            return entries
+        mgr_members = (mgr_coll.json() or {}).get("Members") or []
+        if not mgr_members:
+            return entries
+        mgr_href = mgr_members[0].get("@odata.id")
+        if not mgr_href:
+            return entries
+        ls_coll = await client.get(f"{base}{mgr_href}/LogServices")
+        if ls_coll.status_code != 200:
+            return entries
+        ls_members = (ls_coll.json() or {}).get("Members") or []
+        if not ls_members:
+            return entries
+        ls_href = ls_members[0].get("@odata.id")
+        if not ls_href:
+            return entries
+        ent_coll = await client.get(f"{base}{ls_href}/Entries?$top=10")
+        if ent_coll.status_code != 200:
+            return entries
+        for e in (ent_coll.json() or {}).get("Members") or []:
+            entries.append(
+                {
+                    "id": e.get("Id") or "?",
+                    "severity": e.get("Severity") or "OK",
+                    "message": e.get("Message") or "—",
+                    "createdAt": e.get("Created") or "",
+                }
+            )
+    except Exception:
+        pass  # Logs aren't critical — keep returning what we have
     return entries
 
 
@@ -364,10 +365,12 @@ async def _collect_redfish(server: Server) -> dict | None:
                 logger.warning("redfish discovery failed for %s", server.id)
                 return None
 
-            thermal_res, power_res, system_res = await asyncio.gather(
+            thermal_res, power_res, system_res, drives, logs = await asyncio.gather(
                 client.get(f"{base}/{chassis_path}/Thermal"),
                 client.get(f"{base}/{chassis_path}/Power"),
                 client.get(f"{base}/{system_path}"),
+                _redfish_storage_drives(client, base, system_path),
+                _redfish_recent_logs(client, base),
             )
         if thermal_res.status_code != 200 or system_res.status_code != 200:
             return None
@@ -427,12 +430,8 @@ async def _collect_redfish(server: Server) -> dict | None:
             else None
         )
 
-        # Storage drive discovery and log entries — run concurrently with the
-        # same client (connection pool reuse).
-        drives_future = _redfish_storage_drives(client, base, system_path)
-        logs_future = _redfish_recent_logs(client, base)
-        drives, logs = await asyncio.gather(drives_future, logs_future)
-
+        # Storage drive discovery and log entries — MUST be inside the
+        # async-with block (client is closed after it exits).
         return {
             "power": "On" if (system.get("PowerState") == "On") else "Off",
             "health": ((system.get("Status") or {}).get("Health")) or "OK",
