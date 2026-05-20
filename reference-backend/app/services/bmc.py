@@ -347,11 +347,11 @@ async def _redfish_recent_logs(
 
 async def _redfish_session_auth(
     client: httpx.AsyncClient, base: str, user: str, password: str
-) -> str | None:
-    """Create a Redfish session and return the X-Auth-Token.
+) -> tuple[str | None, str | None]:
+    """Create a Redfish session. Returns (token, session_uri).
 
-    Many BMCs (Inspur, HPE, Dell iDRAC 9+) require session-based auth
-    instead of HTTP Basic. Returns None if the BMC doesn't support it.
+    The session_uri is used to DELETE the session when done, preventing
+    session leaks that can hit BMC session limits.
     """
     try:
         r = await client.post(
@@ -360,12 +360,22 @@ async def _redfish_session_auth(
         )
         if r.status_code in (200, 201):
             token = r.headers.get("X-Auth-Token")
+            session_uri = r.headers.get("Location")
             if token:
-                # Also read Location header to get the session URI for cleanup
-                return token
+                return token, session_uri
     except Exception:
         pass
-    return None
+    return None, None
+
+
+async def _redfish_delete_session(
+    client: httpx.AsyncClient, base: str, session_uri: str
+) -> None:
+    """DELETE a Redfish session to avoid hitting BMC session limits."""
+    try:
+        await client.delete(f"{base}{session_uri}")
+    except Exception:
+        pass
 
 
 async def _collect_redfish(server: Server) -> dict | None:
@@ -379,9 +389,9 @@ async def _collect_redfish(server: Server) -> dict | None:
         ) as client:
             # Try session auth first (required by Inspur & many enterprise BMCs),
             # fall back to Basic auth on the client if session isn't supported.
-            session_token: str | None = None
+            session_uri: str | None = None
             if has_creds:
-                session_token = await _redfish_session_auth(
+                session_token, session_uri = await _redfish_session_auth(
                     client, base, server.bmc_user, server.bmc_password
                 )
                 if session_token:
@@ -464,7 +474,7 @@ async def _collect_redfish(server: Server) -> dict | None:
 
         # Storage drive discovery and log entries — MUST be inside the
         # async-with block (client is closed after it exits).
-        return {
+        result_data = {
             "power": "On" if (system.get("PowerState") == "On") else "Off",
             "health": ((system.get("Status") or {}).get("Health")) or "OK",
             "bootProgress": (
@@ -481,6 +491,10 @@ async def _collect_redfish(server: Server) -> dict | None:
             "drives": drives or None,
             "recentLogs": logs or None,
         }
+        # Clean up the session so we don't hit BMC session limits
+        if session_uri:
+            await _redfish_delete_session(client, base, session_uri)
+        return result_data
     except Exception as e:
         logger.warning("redfish poll failed for %s: %s", server.id, e)
         return None

@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173"
 
     redfish_default_base: str = "http://redfish-mock:8000"
-    redfish_timeout_seconds: int = 4
+    redfish_timeout_seconds: int = 15
 
     poll_interval_seconds: int = 60
 
