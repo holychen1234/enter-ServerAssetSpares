@@ -127,38 +127,24 @@ def _simulate(server: Server) -> dict:
         for i in range(11, -1, -1)
     ]
 
-    cpu_models = [
-        "Intel Xeon Gold 6248R",
-        "Intel Xeon Silver 4314",
-        "AMD EPYC 7543",
-        "Intel Xeon Platinum 8358P",
-    ]
-    proc_model = cpu_models[(seed + 3) % len(cpu_models)]
-    proc_count = 2 if seed % 3 != 0 else 1
+    # Use database static asset fields as the fallback so the BMC tab
+    # always shows real inventory data even when the BMC is unreachable.
+    proc_model = server.cpu_model.strip() if server.cpu_model else ""
+    proc_count = server.cpu_count if server.cpu_count and server.cpu_count > 0 else 0
+    mem_gb = server.memory_gb if server.memory_gb and server.memory_gb > 0 else 0
+    disk_count = server.disk_count if server.disk_count and server.disk_count > 0 else 0
 
-    disk_types = ["SSD", "HDD"]
-    drive_models_ssd = [
-        "Samsung PM9A3 960GB",
-        "Intel D7-P5620 1.6TB",
-        "Micron 7450 MAX 800GB",
-    ]
-    drive_models_hdd = [
-        "Seagate Exos X20 18TB",
-        "WD Gold 16TB",
-        "Toshiba MG09 18TB",
-    ]
+    # Build placeholder drive entries from the db disk_count so the
+    # drives table is never empty while the operator hasn't entered data.
     drives = []
-    for i in range(4 if seed % 2 == 0 else 6):
-        is_ssd = (i + seed) % 2 == 0
-        dtype = "SSD" if is_ssd else "HDD"
-        dmodels = drive_models_ssd if is_ssd else drive_models_hdd
+    for i in range(disk_count if disk_count > 0 else 0):
         drives.append(
             {
                 "name": f"Disk.Bay.{i+1}",
-                "model": dmodels[(i + seed) % len(dmodels)],
-                "capacityGB": 960 + i * 480 if is_ssd else 16000 + i * 2000,
-                "mediaType": dtype,
-                "status": "OK" if not is_offline else "Critical",
+                "model": "—",
+                "capacityGB": 0,
+                "mediaType": "—",
+                "status": "Unknown" if is_offline else "—",
             }
         )
 
@@ -196,12 +182,12 @@ def _simulate(server: Server) -> dict:
         "updatedAt": _now_iso(),
         "processorSummary": (
             {"count": proc_count, "model": proc_model}
-            if not is_offline
+            if proc_count > 0 or proc_model
             else None
         ),
         "memorySummary": (
-            {"totalGiB": 256 + (seed % 5) * 128}
-            if not is_offline
+            {"totalGiB": float(mem_gb)}
+            if mem_gb > 0
             else None
         ),
         "drives": drives,
