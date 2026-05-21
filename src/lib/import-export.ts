@@ -157,15 +157,37 @@ export interface ImportResult {
   errorCount: number;
 }
 
+/** Detect file type from File object */
+function isCsvFile(file: File): boolean {
+  return file.name.toLowerCase().endsWith(".csv");
+}
+
 /** Parse a file (CSV or Excel) and return validated rows. */
 export function parseImportFile(file: File): Promise<ImportResult> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
+
     reader.onload = (e) => {
       try {
-        const data = new Uint8Array(e.target!.result as ArrayBuffer);
-        const wb = XLSX.read(data, { type: "array" });
+        const isCsv = isCsvFile(file);
+        let wb: XLSX.WorkBook;
+
+        if (isCsv) {
+          // CSV: read as text for proper encoding handling (BOM, UTF-8)
+          const text = e.target!.result as string;
+          wb = XLSX.read(text, { type: "string", raw: true });
+        } else {
+          // XLSX/XLS: read as binary array
+          const data = new Uint8Array(e.target!.result as ArrayBuffer);
+          wb = XLSX.read(data, { type: "array" });
+        }
+
         const sheet = wb.Sheets[wb.SheetNames[0]];
+        if (!sheet) {
+          reject(new Error("文件中未找到有效的工作表"));
+          return;
+        }
+
         const json = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1 });
         if (json.length < 1) {
           resolve({ rows: [], validCount: 0, errorCount: 0 });
@@ -196,11 +218,19 @@ export function parseImportFile(file: File): Promise<ImportResult> {
         const validCount = rows.filter((r) => r.errors.length === 0).length;
         resolve({ rows, validCount, errorCount: rows.length - validCount });
       } catch (err) {
-        reject(err instanceof Error ? err : new Error("文件解析失败"));
+        const msg = err instanceof Error ? err.message : "文件解析失败";
+        console.error("parseImportFile error:", err);
+        reject(new Error(msg));
       }
     };
-    reader.onerror = () => reject(new Error("文件读取失败"));
-    reader.readAsArrayBuffer(file);
+
+    reader.onerror = () => reject(new Error("文件读取失败，请检查文件是否损坏"));
+
+    if (isCsvFile(file)) {
+      reader.readAsText(file, "UTF-8");
+    } else {
+      reader.readAsArrayBuffer(file);
+    }
   });
 }
 

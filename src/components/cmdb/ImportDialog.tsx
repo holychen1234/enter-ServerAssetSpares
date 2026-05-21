@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useCallback } from "react";
 import {
   Dialog,
   DialogContent,
@@ -62,9 +62,7 @@ export function ImportDialog({ open, onClose, onImported }: Props) {
     onClose();
   };
 
-  const [isPicking, setIsPicking] = useState(false);
-
-  const handleFile = async (file: File) => {
+  const handleFile = useCallback(async (file: File) => {
     try {
       const r = await parseImportFile(file);
       if (r.rows.length === 0) {
@@ -74,19 +72,33 @@ export function ImportDialog({ open, onClose, onImported }: Props) {
       setResult(r);
       setStep("preview");
     } catch (err) {
+      const msg = err instanceof Error ? err.message : "未知错误";
+      console.error("文件解析失败:", msg, err);
       toast({
         title: "文件解析失败",
-        description: err instanceof Error ? err.message : "未知错误",
+        description: msg,
         variant: "destructive",
       });
-    } finally {
-      setIsPicking(false);
     }
-  };
+  }, []);
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) handleFile(file);
+    // Reset input value so the same file can be re-selected
+    e.target.value = "";
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(true);
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    // Only set false when leaving the drop zone, not child elements
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setDragOver(false);
+    }
   };
 
   const handleDrop = (e: React.DragEvent) => {
@@ -139,13 +151,8 @@ export function ImportDialog({ open, onClose, onImported }: Props) {
   };
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && !isPicking && handleClose()}>
-      <DialogContent
-        className="sm:max-w-[700px] max-h-[85vh] overflow-y-auto"
-        onPointerDownOutside={(e) => {
-          if (isPicking) e.preventDefault();
-        }}
-      >
+    <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
+      <DialogContent className="sm:max-w-[700px] max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>批量导入主机</DialogTitle>
           <DialogDescription>
@@ -173,9 +180,6 @@ export function ImportDialog({ open, onClose, onImported }: Props) {
                   ? "border-primary bg-primary/5"
                   : "border-border hover:border-muted-foreground/50"
               }`}
-              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-              onDragLeave={() => setDragOver(false)}
-              onDrop={handleDrop}
             >
               <Upload className="mx-auto h-10 w-10 text-muted-foreground mb-3" />
               <p className="text-sm text-muted-foreground">
@@ -190,7 +194,9 @@ export function ImportDialog({ open, onClose, onImported }: Props) {
                 accept=".xlsx,.csv"
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                 onChange={handleFileInput}
-                onClick={() => { setIsPicking(true); }}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
               />
             </div>
           </div>
