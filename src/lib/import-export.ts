@@ -206,9 +206,9 @@ export function parseImportFile(file: File): Promise<ImportResult> {
           if (!raw || raw.every((c) => !c)) continue;
           const data: Record<string, string> = {};
           for (let j = 0; j < headerRow.length; j++) {
-            const key = labelToKey.get(headerRow[j]?.trim() ?? "");
+            const key = labelToKey.get(String(headerRow[j] ?? "").trim());
             if (key) {
-              data[key] = (raw[j] ?? "").trim();
+              data[key] = String(raw[j] ?? "").trim();
             }
           }
           const errors = validateImportRow(data);
