@@ -62,9 +62,10 @@ export function ImportDialog({ open, onClose, onImported }: Props) {
     onClose();
   };
 
+  const [isPicking, setIsPicking] = useState(false);
+
   const handleFile = async (file: File) => {
     try {
-      setStep("upload");
       const r = await parseImportFile(file);
       if (r.rows.length === 0) {
         toast({ title: "文件为空", description: "未检测到有效数据行" });
@@ -78,6 +79,8 @@ export function ImportDialog({ open, onClose, onImported }: Props) {
         description: err instanceof Error ? err.message : "未知错误",
         variant: "destructive",
       });
+    } finally {
+      setIsPicking(false);
     }
   };
 
@@ -136,8 +139,13 @@ export function ImportDialog({ open, onClose, onImported }: Props) {
   };
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
-      <DialogContent className="sm:max-w-[700px] max-h-[85vh] overflow-y-auto">
+    <Dialog open={open} onOpenChange={(v) => !v && !isPicking && handleClose()}>
+      <DialogContent
+        className="sm:max-w-[700px] max-h-[85vh] overflow-y-auto"
+        onPointerDownOutside={(e) => {
+          if (isPicking) e.preventDefault();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>批量导入主机</DialogTitle>
           <DialogDescription>
@@ -160,7 +168,7 @@ export function ImportDialog({ open, onClose, onImported }: Props) {
             </div>
 
             <div
-              className={`border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
+              className={`relative border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
                 dragOver
                   ? "border-primary bg-primary/5"
                   : "border-border hover:border-muted-foreground/50"
@@ -168,7 +176,6 @@ export function ImportDialog({ open, onClose, onImported }: Props) {
               onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
               onDragLeave={() => setDragOver(false)}
               onDrop={handleDrop}
-              onClick={() => fileInputRef.current?.click()}
             >
               <Upload className="mx-auto h-10 w-10 text-muted-foreground mb-3" />
               <p className="text-sm text-muted-foreground">
@@ -181,8 +188,9 @@ export function ImportDialog({ open, onClose, onImported }: Props) {
                 ref={fileInputRef}
                 type="file"
                 accept=".xlsx,.csv"
-                className="hidden"
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                 onChange={handleFileInput}
+                onClick={() => { setIsPicking(true); }}
               />
             </div>
           </div>
