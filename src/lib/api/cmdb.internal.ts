@@ -101,6 +101,13 @@ export async function deleteServer(id: string): Promise<void> {
   await api<void>(`/servers/${id}`, { method: "DELETE" });
 }
 
+export async function batchDeleteServers(ids: string[]): Promise<void> {
+  await api<void>("/servers/batch-delete", {
+    method: "POST",
+    body: { ids },
+  });
+}
+
 // ---------- BMC ----------
 export async function getBmcStatus(
   serverId: string,

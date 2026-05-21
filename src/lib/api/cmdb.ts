@@ -11,6 +11,7 @@ export const getServer = impl.getServer;
 export const createServer = impl.createServer;
 export const updateServer = impl.updateServer;
 export const deleteServer = impl.deleteServer;
+export const batchDeleteServers = impl.batchDeleteServers;
 export const getBmcStatus = impl.getBmcStatus;
 export const listParts = impl.listParts;
 export const getPart = impl.getPart;

@@ -139,6 +139,25 @@ export async function deleteServer(id: string): Promise<void> {
     await writeAudit("server.delete", `srv:${row.hostname}`, "删除主机", "warn");
 }
 
+export async function batchDeleteServers(ids: string[]): Promise<void> {
+  // Fetch hostnames for audit before deleting
+  const { data: rows } = await supabase
+    .from("servers")
+    .select("id, hostname")
+    .in("id", ids);
+  const hostnames = (rows || []).map((r: { hostname: string }) => r.hostname);
+  const { error } = await supabase.from("servers").delete().in("id", ids);
+  if (error) throw error;
+  if (hostnames.length > 0) {
+    await writeAudit(
+      "server.batch_delete",
+      `srv:${hostnames.length}台主机`,
+      hostnames.join(", "),
+      "warn",
+    );
+  }
+}
+
 // ---------- BMC live status ----------
 export async function getBmcStatus(
   serverId: string,

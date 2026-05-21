@@ -156,6 +156,37 @@ def delete_server(
     db.commit()
 
 
+@router.post("/servers/batch-delete", status_code=204)
+def batch_delete_servers(
+    body: dict = Body(...),
+    db: Session = Depends(get_db),
+    user: Profile = Depends(require_writer),
+):
+    ids: list[str] = (body or {}).get("ids") or []
+    if not ids:
+        raise HTTPException(400, "ids 不能为空")
+    if len(ids) > 200:
+        raise HTTPException(400, "单次最多删除 200 台主机")
+
+    servers = db.query(Server).filter(Server.id.in_(ids)).all()
+    found_ids = {s.id for s in servers}
+    hostnames = [s.hostname for s in servers]
+
+    for s in servers:
+        db.delete(s)
+    db.add(
+        AuditLog(
+            id=str(uuid.uuid4()),
+            actor=user.username,
+            action="server.batch_delete",
+            target=f"srv:{len(hostnames)}台主机",
+            detail=", ".join(hostnames),
+            level="warn",
+        )
+    )
+    db.commit()
+
+
 @router.get("/servers/{sid}/bmc")
 async def server_bmc(
     sid: str,

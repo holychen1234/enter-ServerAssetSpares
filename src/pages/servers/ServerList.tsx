@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  batchDeleteServers,
   createServer,
   deleteServer,
   listServers,
@@ -22,6 +23,7 @@ import {
 } from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -73,9 +75,11 @@ export default function ServerList() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [idcFilter, setIdcFilter] = useState<string>("all");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [editing, setEditing] = useState<Server | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [toDelete, setToDelete] = useState<Server | null>(null);
+  const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
 
   const idcOptions = useMemo(() => {
@@ -125,6 +129,32 @@ export default function ServerList() {
       setToDelete(null);
     },
   });
+  const mBatchDelete = useMutation({
+    mutationFn: batchDeleteServers,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["servers"] });
+      toast({ title: `已删除 ${selectedIds.size} 台主机` });
+      setSelectedIds(new Set());
+      setBatchDeleteOpen(false);
+    },
+  });
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    if (selectedIds.size === filtered.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filtered.map((s) => s.id)));
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -201,10 +231,45 @@ export default function ServerList() {
           />
         </div>
 
+        {selectedIds.size > 0 && (
+          <div className="flex items-center gap-3 border-b border-border bg-muted/40 px-4 py-2">
+            <span className="text-sm text-muted-foreground">
+              已选 <span className="font-medium text-foreground">{selectedIds.size}</span> 台主机
+            </span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => setSelectedIds(new Set())}
+            >
+              取消选择
+            </Button>
+            <div className="flex-1" />
+            {canEdit && (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setBatchDeleteOpen(true)}
+              >
+                <Trash2 className="mr-1 h-4 w-4" />
+                批量删除
+              </Button>
+            )}
+          </div>
+        )}
+
         <div className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10">
+                  <Checkbox
+                    checked={
+                      filtered.length > 0 &&
+                      selectedIds.size === filtered.length
+                    }
+                    onCheckedChange={toggleSelectAll}
+                  />
+                </TableHead>
                 <TableHead>主机名</TableHead>
                 <TableHead>状态</TableHead>
                 <TableHead>厂商 / 型号</TableHead>
@@ -215,10 +280,10 @@ export default function ServerList() {
             </TableHeader>
             <TableBody>
               {isLoading && (
-                <TableRow><TableCell colSpan={6} className="py-8 text-center text-sm text-muted-foreground">加载中…</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">加载中…</TableCell></TableRow>
               )}
               {!isLoading && filtered.length === 0 && (
-                <TableRow><TableCell colSpan={6} className="py-8 text-center text-sm text-muted-foreground">没有匹配的记录</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">没有匹配的记录</TableCell></TableRow>
               )}
               {filtered.map((s) => (
                 <TableRow
@@ -226,6 +291,12 @@ export default function ServerList() {
                   className="cursor-pointer transition-smooth hover:bg-muted/40"
                   onClick={() => navigate(`/servers/${s.id}`)}
                 >
+                  <TableCell onClick={(e) => e.stopPropagation()}>
+                    <Checkbox
+                      checked={selectedIds.has(s.id)}
+                      onCheckedChange={() => toggleSelect(s.id)}
+                    />
+                  </TableCell>
                   <TableCell>
                     <div className="flex flex-col">
                       <span className="font-medium text-foreground">{s.hostname}</span>
@@ -322,6 +393,30 @@ export default function ServerList() {
               onClick={() => toDelete && mDelete.mutate(toDelete.id)}
             >
               删除
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={batchDeleteOpen} onOpenChange={setBatchDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>批量删除主机</AlertDialogTitle>
+            <AlertDialogDescription>
+              确认删除已选的{" "}
+              <span className="font-medium text-foreground">{selectedIds.size}</span>{" "}
+              台主机吗？该操作不可恢复。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>取消</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-danger text-danger-foreground hover:bg-danger/90"
+              onClick={() =>
+                mBatchDelete.mutate(Array.from(selectedIds))
+              }
+            >
+              删除 {selectedIds.size} 台主机
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
