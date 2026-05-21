@@ -13,7 +13,6 @@ export const SERVER_COLUMNS = [
   { key: "cpuModel", label: "CPU型号", required: true, example: "Intel Xeon Gold 6330" },
   { key: "cpuCount", label: "CPU数量", required: false, example: "2" },
   { key: "memoryGB", label: "内存(GB)", required: false, example: "256" },
-  { key: "diskCount", label: "磁盘数量", required: false, example: "4" },
   { key: "idc", label: "机房", required: true, example: "北京-亦庄" },
   { key: "rack", label: "机柜", required: true, example: "A-12" },
   { key: "uPosition", label: "U位", required: true, example: "18-20" },
@@ -76,7 +75,6 @@ function pickExportValue(s: Server, key: string): string {
     case "cpuModel": return s.cpuModel;
     case "cpuCount": return String(s.cpuCount);
     case "memoryGB": return String(s.memoryGB);
-    case "diskCount": return String(s.diskCount);
     case "idc": return s.location.idc;
     case "rack": return s.location.rack;
     case "uPosition": return s.location.uPosition;
@@ -232,9 +230,6 @@ function validateImportRow(data: Record<string, string>): string[] {
     if (data.memoryGB && isNaN(Number(data.memoryGB))) {
       errors.push(`内存 "${data.memoryGB}" 不是有效数字`);
     }
-    if (data.diskCount && isNaN(Number(data.diskCount))) {
-      errors.push(`磁盘数量 "${data.diskCount}" 不是有效数字`);
-    }
     if (data.purchaseDate && isNaN(Date.parse(data.purchaseDate))) {
       errors.push(`采购日期 "${data.purchaseDate}" 格式无效，请使用 YYYY-MM-DD`);
     }
@@ -264,7 +259,7 @@ export function importRowToPayload(
     cpuModel: data.cpuModel,
     cpuCount: parseInt(data.cpuCount) || 1,
     memoryGB: parseInt(data.memoryGB) || 0,
-    diskCount: parseInt(data.diskCount) || 0,
+    diskCount: 0,
     location: {
       idc: data.idc,
       rack: data.rack,
