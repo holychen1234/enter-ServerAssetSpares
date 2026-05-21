@@ -1,4 +1,10 @@
-from datetime import datetime
+from datetime import datetime, timezone
+
+
+def _utc_now():
+    """Return a timezone-aware UTC datetime so JSON serialization includes
+    the offset (+00:00) and browsers can correctly convert to local time."""
+    return datetime.now(timezone.utc)
 from sqlalchemy import (
     JSON,
     CHAR,
@@ -33,7 +39,7 @@ class Profile(Base):
     failed_login_attempts = Column(Integer, nullable=False, default=0)
     locked_until = Column(DateTime, nullable=True)
     last_login = Column(DateTime, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=_utc_now, nullable=False)
 
 
 class Server(Base):
@@ -70,9 +76,9 @@ class Server(Base):
     warranty_end = Column(DateTime, nullable=True)
     tags = Column(JSON, nullable=True)
     remark = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=_utc_now, nullable=False)
     updated_at = Column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+        DateTime, default=_utc_now, onupdate=_utc_now, nullable=False
     )
 
 
@@ -100,7 +106,7 @@ class Part(Base):
         default="in_stock",
     )
     remark = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=_utc_now, nullable=False)
 
 
 class StockMovement(Base):
@@ -118,7 +124,7 @@ class StockMovement(Base):
         CHAR(36), ForeignKey("servers.id", ondelete="SET NULL"), nullable=True
     )
     reason = Column(String(255), nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=_utc_now, nullable=False)
 
 
 class AuditLog(Base):
@@ -133,4 +139,4 @@ class AuditLog(Base):
         nullable=False,
         default="info",
     )
-    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime, default=_utc_now, nullable=False)
