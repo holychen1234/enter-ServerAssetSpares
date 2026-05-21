@@ -302,8 +302,8 @@ export function importRowToPayload(
     bmcPassword: data.bmcPassword || undefined,
     status: (data.status || "online") as ServerStatus,
     owner: data.owner || "",
-    purchaseDate: data.purchaseDate || "",
-    warrantyEnd: data.warrantyEnd || "",
+    purchaseDate: data.purchaseDate || undefined,
+    warrantyEnd: data.warrantyEnd || undefined,
     tags: data.tags ? data.tags.split(/[;,]/).map((t) => t.trim()).filter(Boolean) : [],
     remark: data.remark || undefined,
   };
