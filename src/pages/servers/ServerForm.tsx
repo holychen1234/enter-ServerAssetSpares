@@ -32,7 +32,6 @@ const schema = z.object({
   cpuModel: z.string().min(1, "必填"),
   cpuCount: z.coerce.number().int().min(1).max(8),
   memoryGB: z.coerce.number().int().min(1),
-  diskCount: z.coerce.number().int().min(0),
   idc: z.string().min(1, "必填"),
   rack: z.string().min(1, "必填"),
   uPosition: z.string().min(1, "必填"),
@@ -67,7 +66,6 @@ const EMPTY: ServerFormData = {
   cpuModel: "",
   cpuCount: 2,
   memoryGB: 64,
-  diskCount: 2,
   idc: "",
   rack: "",
   uPosition: "",
@@ -102,7 +100,6 @@ export function ServerForm({ open, initial, onClose, onSubmit }: Props) {
           cpuModel: initial.cpuModel,
           cpuCount: initial.cpuCount,
           memoryGB: initial.memoryGB,
-          diskCount: initial.diskCount,
           idc: initial.location.idc,
           rack: initial.location.rack,
           uPosition: initial.location.uPosition,
@@ -136,7 +133,7 @@ export function ServerForm({ open, initial, onClose, onSubmit }: Props) {
       cpuModel: values.cpuModel,
       cpuCount: values.cpuCount,
       memoryGB: values.memoryGB,
-      diskCount: values.diskCount,
+      diskCount: (initial?.diskCount ?? 0),
       location: { idc: values.idc, rack: values.rack, uPosition: values.uPosition },
       mgmtIp: values.mgmtIp,
       bizIp: values.bizIp,
@@ -191,9 +188,6 @@ export function ServerForm({ open, initial, onClose, onSubmit }: Props) {
           </Field>
           <Field label="内存 (GB)">
             <Input type="number" min={1} {...form.register("memoryGB")} />
-          </Field>
-          <Field label="硬盘数量">
-            <Input type="number" min={0} {...form.register("diskCount")} />
           </Field>
           <Field label="IDC">
             <Input {...form.register("idc")} placeholder="BJ-IDC-A" />

@@ -110,7 +110,21 @@ export default function ServerDetail() {
             <InfoCard title="硬件配置">
               <Row label="CPU" value={`${server.cpuCount} × ${server.cpuModel}`} />
               <Row label="内存" value={`${server.memoryGB} GB`} />
-              <Row label="硬盘数量" value={`${server.diskCount} 块`} />
+              <Row
+                label="硬盘数量"
+                value={
+                  status?.drives ? (
+                    <span className="inline-flex items-center gap-2">
+                      {status.drives.length} 块
+                      <Badge variant="outline" className="text-[10px] text-success border-success/30 bg-success/10">
+                        BMC
+                      </Badge>
+                    </span>
+                  ) : (
+                    `${server.diskCount} 块`
+                  )
+                }
+              />
             </InfoCard>
 
             <InfoCard title="位置">
