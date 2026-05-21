@@ -143,6 +143,19 @@ export function generateTemplate(format: "csv" | "xlsx"): Blob {
   });
 }
 
+/** Convert an Excel date serial number to YYYY-MM-DD string. */
+function excelSerialToDate(serial: number): string | null {
+  // Excel serial 1 = 1900-01-01. Range ~30k (1982) – ~55k (2050).
+  if (serial < 30000 || serial > 55000) return null;
+  // 25569 = days from 1900-01-01 to 1970-01-01 + Excel leap-year bug offset
+  const d = new Date(Math.round((serial - 25569) * 86400000));
+  if (isNaN(d.getTime())) return null;
+  return d.toISOString().slice(0, 10);
+}
+
+/** Columns that may contain Excel date serial numbers. */
+const DATE_KEYS = new Set(["purchaseDate", "warrantyEnd"]);
+
 // ---------- import ----------
 
 export interface ImportRow {
@@ -208,7 +221,12 @@ export function parseImportFile(file: File): Promise<ImportResult> {
           for (let j = 0; j < headerRow.length; j++) {
             const key = labelToKey.get(String(headerRow[j] ?? "").trim());
             if (key) {
-              data[key] = String(raw[j] ?? "").trim();
+              const cell = raw[j];
+              if (DATE_KEYS.has(key) && typeof cell === "number") {
+                data[key] = excelSerialToDate(cell) ?? String(cell ?? "").trim();
+              } else {
+                data[key] = String(cell ?? "").trim();
+              }
             }
           }
           const errors = validateImportRow(data);
@@ -260,10 +278,10 @@ function validateImportRow(data: Record<string, string>): string[] {
     if (data.memoryGB && isNaN(Number(data.memoryGB))) {
       errors.push(`内存 "${data.memoryGB}" 不是有效数字`);
     }
-    if (data.purchaseDate && isNaN(Date.parse(data.purchaseDate))) {
+    if (data.purchaseDate && !/^\d{4}-\d{2}-\d{2}$/.test(data.purchaseDate)) {
       errors.push(`采购日期 "${data.purchaseDate}" 格式无效，请使用 YYYY-MM-DD`);
     }
-    if (data.warrantyEnd && isNaN(Date.parse(data.warrantyEnd))) {
+    if (data.warrantyEnd && !/^\d{4}-\d{2}-\d{2}$/.test(data.warrantyEnd)) {
       errors.push(`保修截止 "${data.warrantyEnd}" 格式无效，请使用 YYYY-MM-DD`);
     }
     if (data.mgmtIp && !/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(data.mgmtIp)) {

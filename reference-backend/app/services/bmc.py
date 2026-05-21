@@ -266,41 +266,94 @@ def _pick_temp(temps: list[dict], pattern: str) -> float:
 async def _redfish_storage_drives(
     client: httpx.AsyncClient, base: str, system_path: str
 ) -> list[dict]:
-    """Discover drives under ``/Systems/X/Storage``."""
+    """Discover drives under ``/Systems/X/Storage``, with fallback to
+    ``SimpleStorage`` for older BMCs (Dell iDRAC 8 and earlier)."""
     drives: list[dict] = []
     try:
-        storage_coll = await client.get(f"{base}/{system_path}/Storage")
-        if storage_coll.status_code != 200:
+        drives = await _redfish_storage_modern(client, base, system_path)
+        if drives:
             return drives
-        members = (storage_coll.json() or {}).get("Members") or []
-        for m in members:
-            storage_href = m.get("@odata.id")
-            if not storage_href:
-                continue
-            storage_res = await client.get(f"{base}{storage_href}")
-            if storage_res.status_code != 200:
-                continue
-            storage: dict = storage_res.json() or {}
-            for dref in storage.get("Drives") or []:
-                dhref = dref.get("@odata.id") if isinstance(dref, dict) else None
-                if not dhref:
-                    continue
-                dr = await client.get(f"{base}{dhref}")
-                if dr.status_code != 200:
-                    continue
-                d = dr.json() or {}
-                cap_bytes = d.get("CapacityBytes") or 0
-                drives.append(
-                    {
-                        "name": d.get("Name") or d.get("Id") or "?",
-                        "model": d.get("Model") or "—",
-                        "capacityGB": round(cap_bytes / (1024**3), 0) if cap_bytes else 0,
-                        "mediaType": d.get("MediaType") or "—",
-                        "status": ((d.get("Status") or {}).get("Health")) or "OK",
-                    }
-                )
+        # Fallback: older Dell iDRAC (8 and earlier) exposes drives via
+        # SimpleStorage with inline device descriptions instead of
+        # separate Drive resources.
+        drives = await _redfish_storage_simple(client, base, system_path)
     except Exception:
         pass  # Storage isn't critical — keep returning what we have
+    return drives
+
+
+async def _redfish_storage_modern(
+    client: httpx.AsyncClient, base: str, system_path: str
+) -> list[dict]:
+    """Redfish Storage schema (iDRAC 9+, Supermicro X11+, etc.)."""
+    drives: list[dict] = []
+    storage_coll = await client.get(f"{base}/{system_path}/Storage")
+    if storage_coll.status_code != 200:
+        return drives
+    members = (storage_coll.json() or {}).get("Members") or []
+    for m in members:
+        storage_href = m.get("@odata.id")
+        if not storage_href:
+            continue
+        storage_res = await client.get(f"{base}{storage_href}")
+        if storage_res.status_code != 200:
+            continue
+        storage: dict = storage_res.json() or {}
+        for dref in storage.get("Drives") or []:
+            dhref = dref.get("@odata.id") if isinstance(dref, dict) else None
+            if not dhref:
+                continue
+            dr = await client.get(f"{base}{dhref}")
+            if dr.status_code != 200:
+                continue
+            d = dr.json() or {}
+            cap_bytes = d.get("CapacityBytes") or 0
+            drives.append(
+                {
+                    "name": d.get("Name") or d.get("Id") or "?",
+                    "model": d.get("Model") or "—",
+                    "capacityGB": (
+                        round(cap_bytes / (1024**3), 0) if cap_bytes else 0
+                    ),
+                    "mediaType": d.get("MediaType") or "—",
+                    "status": ((d.get("Status") or {}).get("Health")) or "OK",
+                }
+            )
+    return drives
+
+
+async def _redfish_storage_simple(
+    client: httpx.AsyncClient, base: str, system_path: str
+) -> list[dict]:
+    """Redfish SimpleStorage schema (older Dell iDRAC 8, HPE iLO 4, etc.).
+
+    Devices are embedded inline — no separate per-drive HTTP request needed."""
+    drives: list[dict] = []
+    coll = await client.get(f"{base}/{system_path}/SimpleStorage")
+    if coll.status_code != 200:
+        return drives
+    members = (coll.json() or {}).get("Members") or []
+    for m in members:
+        href = m.get("@odata.id")
+        if not href:
+            continue
+        r = await client.get(f"{base}{href}")
+        if r.status_code != 200:
+            continue
+        ss: dict = r.json() or {}
+        for i, dev in enumerate(ss.get("Devices") or []):
+            cap_bytes = dev.get("CapacityBytes") or 0
+            drives.append(
+                {
+                    "name": dev.get("Name") or f"Disk.Bay.{i+1}",
+                    "model": dev.get("Model") or "—",
+                    "capacityGB": (
+                        round(cap_bytes / (1024**3), 0) if cap_bytes else 0
+                    ),
+                    "mediaType": "—",
+                    "status": ((dev.get("Status") or {}).get("Health")) or "OK",
+                }
+            )
     return drives
 
 
@@ -363,8 +416,23 @@ async def _redfish_session_auth(
             session_uri = r.headers.get("Location")
             if token:
                 return token, session_uri
-    except Exception:
-        pass
+            logger.info(
+                "Redfish session created (no token header) for %s", base
+            )
+        else:
+            logger.info(
+                "Redfish session auth returned %s for %s (user=%s) — "
+                "will fall back to Basic auth",
+                r.status_code,
+                base,
+                user,
+            )
+    except Exception as exc:
+        logger.info(
+            "Redfish session auth failed for %s: %s — will fall back to Basic auth",
+            base,
+            exc,
+        )
     return None, None
 
 
@@ -387,116 +455,151 @@ async def _collect_redfish(server: Server) -> dict | None:
         async with httpx.AsyncClient(
             timeout=timeout, verify=False, follow_redirects=True
         ) as client:
-            # Try session auth first (required by Inspur & many enterprise BMCs),
-            # fall back to Basic auth on the client if session isn't supported.
             session_uri: str | None = None
-            if has_creds:
-                session_token, session_uri = await _redfish_session_auth(
-                    client, base, server.bmc_user, server.bmc_password
+            try:
+                # Try session auth first (required by Inspur & many enterprise
+                # BMCs), fall back to Basic auth on the client if session isn't
+                # supported.
+                if has_creds:
+                    session_token, session_uri = await _redfish_session_auth(
+                        client, base, server.bmc_user, server.bmc_password
+                    )
+                    if session_token:
+                        client.headers["X-Auth-Token"] = session_token
+                    else:
+                        client.auth = (server.bmc_user, server.bmc_password)
+
+                # Discover collection members in parallel
+                chassis_path, system_path = await asyncio.gather(
+                    _redfish_first_member(client, base, "Chassis"),
+                    _redfish_first_member(client, base, "Systems"),
                 )
-                if session_token:
-                    client.headers["X-Auth-Token"] = session_token
-                else:
-                    client.auth = (server.bmc_user, server.bmc_password)
-            # Discover collection members in parallel
-            chassis_path, system_path = await asyncio.gather(
-                _redfish_first_member(client, base, "Chassis"),
-                _redfish_first_member(client, base, "Systems"),
-            )
-            if not chassis_path or not system_path:
-                logger.warning("redfish discovery failed for %s", server.id)
-                return None
+                if not chassis_path or not system_path:
+                    logger.warning(
+                        "redfish discovery failed for %s (manufacturer=%s)",
+                        server.id,
+                        server.manufacturer,
+                    )
+                    return None
 
-            thermal_res, power_res, system_res, drives, logs = await asyncio.gather(
-                client.get(f"{base}/{chassis_path}/Thermal"),
-                client.get(f"{base}/{chassis_path}/Power"),
-                client.get(f"{base}/{system_path}"),
-                _redfish_storage_drives(client, base, system_path),
-                _redfish_recent_logs(client, base),
-            )
-        if thermal_res.status_code != 200 or system_res.status_code != 200:
-            return None
+                thermal_res, power_res, system_res, drives, logs = (
+                    await asyncio.gather(
+                        client.get(f"{base}/{chassis_path}/Thermal"),
+                        client.get(f"{base}/{chassis_path}/Power"),
+                        client.get(f"{base}/{system_path}"),
+                        _redfish_storage_drives(client, base, system_path),
+                        _redfish_recent_logs(client, base),
+                    )
+                )
 
-        thermal: dict[str, Any] = thermal_res.json() or {}
-        system: dict[str, Any] = system_res.json() or {}
-        power: dict[str, Any] = (
-            power_res.json() if power_res.status_code == 200 else {}
-        )
+                if thermal_res.status_code != 200 or system_res.status_code != 200:
+                    logger.warning(
+                        "redfish http error for %s: thermal=%s system=%s",
+                        server.id,
+                        thermal_res.status_code,
+                        system_res.status_code,
+                    )
+                    return None
 
-        temps = thermal.get("Temperatures") or []
-        cpu_temp = _pick_temp(temps, r"CPU|Proc")
-        inlet_temp = _pick_temp(temps, r"Inlet|Intake|Ambient")
+                thermal: dict[str, Any] = thermal_res.json() or {}
+                system: dict[str, Any] = system_res.json() or {}
+                power: dict[str, Any] = (
+                    power_res.json() if power_res.status_code == 200 else {}
+                )
 
-        fans = [
-            {
-                "name": f.get("Name") or f"Fan{i+1}",
-                "rpm": int(f.get("Reading") or 0),
-                "status": ((f.get("Status") or {}).get("Health")) or "OK",
-            }
-            for i, f in enumerate(thermal.get("Fans") or [])
-        ]
-        psus = [
-            {
-                "name": ps.get("Name") or f"PSU{i+1}",
-                "watts": int(ps.get("PowerOutputWatts") or ps.get("LastPowerOutputWatts") or 0),
-                "capacityW": int(ps.get("PowerCapacityWatts") or 800),
-                "status": ((ps.get("Status") or {}).get("Health")) or "OK",
-            }
-            for i, ps in enumerate(power.get("PowerSupplies") or [])
-        ]
-        # PowerControl[*].PowerConsumedWatts is the chassis-wide draw
-        consumed_w = 0
-        for pc in power.get("PowerControl") or []:
-            v = pc.get("PowerConsumedWatts")
-            if isinstance(v, (int, float)):
-                consumed_w = int(v)
-                break
-        if consumed_w == 0 and psus:
-            consumed_w = sum(p["watts"] for p in psus)
+                temps = thermal.get("Temperatures") or []
+                cpu_temp = _pick_temp(temps, r"CPU|Proc")
+                inlet_temp = _pick_temp(temps, r"Inlet|Intake|Ambient")
 
-        # CPU / Memory summary — extracted from the System resource we already
-        # fetched, so these are "free" (no extra HTTP round-trips).
-        proc_sum = system.get("ProcessorSummary") or {}
-        mem_sum = system.get("MemorySummary") or {}
-        processor = (
-            {
-                "count": int(proc_sum.get("Count") or 0),
-                "model": str(proc_sum.get("Model") or ""),
-            }
-            if proc_sum
-            else None
-        )
-        memory = (
-            {"totalGiB": float(mem_sum.get("TotalSystemMemoryGiB") or 0)}
-            if mem_sum
-            else None
-        )
+                fans = [
+                    {
+                        "name": f.get("Name") or f"Fan{i+1}",
+                        "rpm": int(f.get("Reading") or 0),
+                        "status": (
+                            (f.get("Status") or {}).get("Health")
+                        ) or "OK",
+                    }
+                    for i, f in enumerate(thermal.get("Fans") or [])
+                ]
+                psus = [
+                    {
+                        "name": ps.get("Name") or f"PSU{i+1}",
+                        "watts": int(
+                            ps.get("PowerOutputWatts")
+                            or ps.get("LastPowerOutputWatts")
+                            or 0
+                        ),
+                        "capacityW": int(ps.get("PowerCapacityWatts") or 800),
+                        "status": (
+                            (ps.get("Status") or {}).get("Health")
+                        ) or "OK",
+                    }
+                    for i, ps in enumerate(power.get("PowerSupplies") or [])
+                ]
 
-        # Storage drive discovery and log entries — MUST be inside the
-        # async-with block (client is closed after it exits).
-        result_data = {
-            "power": "On" if (system.get("PowerState") == "On") else "Off",
-            "health": ((system.get("Status") or {}).get("Health")) or "OK",
-            "bootProgress": (
-                ((system.get("BootProgress") or {}).get("LastState"))
-                or "Unknown"
-            ),
-            "cpuTempC": round(cpu_temp, 1),
-            "inletTempC": round(inlet_temp, 1),
-            "fans": fans or None,
-            "psus": psus or None,
-            "_powerWatts": consumed_w,
-            "processorSummary": processor,
-            "memorySummary": memory,
-            "drives": drives or None,
-            "recentLogs": logs or None,
-        }
-        # Clean up the session so we don't hit BMC session limits
-        if session_uri:
-            await _redfish_delete_session(client, base, session_uri)
-        return result_data
+                consumed_w = 0
+                for pc in power.get("PowerControl") or []:
+                    v = pc.get("PowerConsumedWatts")
+                    if isinstance(v, (int, float)):
+                        consumed_w = int(v)
+                        break
+                if consumed_w == 0 and psus:
+                    consumed_w = sum(p["watts"] for p in psus)
+
+                # CPU / Memory — use key presence, not truthiness of the dict
+                # (Dell iDRAC may return empty {} objects).
+                proc_sum = system.get("ProcessorSummary") or {}
+                mem_sum = system.get("MemorySummary") or {}
+                processor = (
+                    {
+                        "count": int(proc_sum.get("Count") or 0),
+                        "model": str(proc_sum.get("Model") or ""),
+                    }
+                    if "Count" in proc_sum or "Model" in proc_sum
+                    else None
+                )
+                memory = (
+                    {
+                        "totalGiB": float(
+                            mem_sum.get("TotalSystemMemoryGiB") or 0
+                        )
+                    }
+                    if "TotalSystemMemoryGiB" in mem_sum
+                    else None
+                )
+
+                return {
+                    "power": (
+                        "On" if (system.get("PowerState") == "On") else "Off"
+                    ),
+                    "health": (
+                        (system.get("Status") or {}).get("Health")
+                    ) or "OK",
+                    "bootProgress": (
+                        (system.get("BootProgress") or {}).get("LastState")
+                    ) or "Unknown",
+                    "cpuTempC": round(cpu_temp, 1),
+                    "inletTempC": round(inlet_temp, 1),
+                    "fans": fans or None,
+                    "psus": psus or None,
+                    "_powerWatts": consumed_w,
+                    "processorSummary": processor,
+                    "memorySummary": memory,
+                    "drives": drives or None,
+                    "recentLogs": logs or None,
+                }
+            finally:
+                # Always clean up the session so we don't hit BMC session
+                # limits (Dell iDRAC caps at 4–8 concurrent sessions).
+                if session_uri:
+                    await _redfish_delete_session(client, base, session_uri)
     except Exception as e:
-        logger.warning("redfish poll failed for %s: %s", server.id, e)
+        logger.warning(
+            "redfish poll failed for %s (manufacturer=%s): %s",
+            server.id,
+            server.manufacturer,
+            e,
+        )
         return None
 
 

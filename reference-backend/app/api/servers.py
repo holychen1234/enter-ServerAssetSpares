@@ -1,6 +1,7 @@
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
+from sqlalchemy.exc import IntegrityError, DataError, ProgrammingError
 from sqlalchemy.orm import Session
 
 from app.api.serializers import server_to_dict
@@ -69,7 +70,7 @@ def get_server(
 
 @router.post("/servers")
 def create_server(
-    body: dict,
+    body: dict = Body(...),
     db: Session = Depends(get_db),
     user: Profile = Depends(require_writer),
 ):
@@ -85,7 +86,15 @@ def create_server(
             detail=f"录入服务器 {s.hostname}",
         )
     )
-    db.commit()
+    try:
+        db.commit()
+    except (IntegrityError, DataError, ProgrammingError) as exc:
+        db.rollback()
+        detail = str(exc.orig) if getattr(exc, "orig", None) else str(exc)
+        raise HTTPException(422, f"数据库错误: {detail}")
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(s)
     return server_to_dict(s)
 
@@ -93,7 +102,7 @@ def create_server(
 @router.patch("/servers/{sid}")
 def update_server(
     sid: str,
-    body: dict,
+    body: dict = Body(...),
     db: Session = Depends(get_db),
     user: Profile = Depends(require_writer),
 ):
@@ -110,7 +119,15 @@ def update_server(
             detail="更新服务器信息",
         )
     )
-    db.commit()
+    try:
+        db.commit()
+    except (IntegrityError, DataError, ProgrammingError) as exc:
+        db.rollback()
+        detail = str(exc.orig) if getattr(exc, "orig", None) else str(exc)
+        raise HTTPException(422, f"数据库错误: {detail}")
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(s)
     return server_to_dict(s)
 
