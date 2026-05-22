@@ -94,6 +94,7 @@ export interface BmcStatus {
   drives?: {
     name: string;
     model: string;
+    sn?: string;
     capacityGB: number;
     mediaType: string;
     status: string;
@@ -109,6 +110,23 @@ export interface BmcStatus {
 
 export type PartCategory = "disk" | "memory" | "nic" | "optical" | "other";
 export type PartStatus = "in_stock" | "allocated" | "in_use" | "scrapped";
+export type PartItemStatus = "in_stock" | "allocated" | "in_use" | "scrapped";
+
+export interface PartItem {
+  id: string;
+  partId: string;
+  sn?: string;
+  status: PartItemStatus;
+  location?: string;
+  installedServerId?: string;
+  installedServerHostname?: string;
+  partBrand?: string;
+  partModel?: string;
+  partSpec?: string;
+  partCategory?: PartCategory;
+  remark?: string;
+  createdAt: string;
+}
 
 export interface Part {
   id: string;
@@ -122,6 +140,8 @@ export interface Part {
   unit: string;
   location: string;
   status: PartStatus;
+  itemCount: number;
+  statusCounts: Record<string, number>;
   remark?: string;
   createdAt: string;
 }
@@ -138,6 +158,8 @@ export interface StockMovement {
   operator: string;
   relatedServerId?: string;
   relatedServerHostname?: string;
+  partItemId?: string;
+  partItemSn?: string;
   reason: string;
   time: string;
 }

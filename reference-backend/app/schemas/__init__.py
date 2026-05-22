@@ -102,17 +102,56 @@ class PartBase(BaseModel):
 
 class PartOut(PartBase):
     id: str
+    item_count: int = Field(0, alias="itemCount")
     created_at: datetime = Field(..., alias="createdAt")
+
+
+# ---------- part items ----------
+class PartItemIn(BaseModel):
+    sn: Optional[str] = None
+    location: Optional[str] = None
+    remark: Optional[str] = None
+
+    class Config:
+        populate_by_name = True
+
+
+class PartItemOut(BaseModel):
+    id: str
+    part_id: str = Field(..., alias="partId")
+    sn: Optional[str] = None
+    status: Literal["in_stock", "allocated", "in_use", "scrapped"]
+    location: Optional[str] = None
+    installed_server_id: Optional[str] = Field(None, alias="installedServerId")
+    installed_server_hostname: Optional[str] = Field(None, alias="installedServerHostname")
+    remark: Optional[str] = None
+    created_at: datetime = Field(..., alias="createdAt")
+
+    class Config:
+        populate_by_name = True
+
+
+class PartItemUpdate(BaseModel):
+    sn: Optional[str] = None
+    status: Optional[Literal["in_stock", "allocated", "in_use", "scrapped"]] = None
+    location: Optional[str] = None
+    installed_server_id: Optional[str] = Field(None, alias="installedServerId")
+    remark: Optional[str] = None
+
+    class Config:
+        populate_by_name = True
 
 
 # ---------- movement ----------
 class MovementIn(BaseModel):
     part_id: str = Field(..., alias="partId")
+    part_item_id: Optional[str] = Field(None, alias="partItemId")
     type: Literal["inbound", "outbound", "return", "scrap"]
     quantity: int
     operator: str
     related_server_id: Optional[str] = Field(None, alias="relatedServerId")
     reason: str
+    items: Optional[list[PartItemIn]] = None
 
     class Config:
         populate_by_name = True
@@ -128,6 +167,8 @@ class MovementOut(BaseModel):
     operator: str
     related_server_id: Optional[str] = Field(None, alias="relatedServerId")
     related_server_hostname: Optional[str] = Field(None, alias="relatedServerHostname")
+    part_item_id: Optional[str] = Field(None, alias="partItemId")
+    part_item_sn: Optional[str] = Field(None, alias="partItemSn")
     reason: str
     time: datetime
 
@@ -192,6 +233,7 @@ class MemorySummaryModel(BaseModel):
 class DiskDriveModel(BaseModel):
     name: str
     model: str
+    sn: Optional[str] = None
     capacity_gb: float = Field(..., alias="capacityGB")
     media_type: str = Field(..., alias="mediaType")
     status: Literal["OK", "Warning", "Critical"] = "OK"

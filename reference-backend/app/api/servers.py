@@ -4,10 +4,10 @@ from fastapi import APIRouter, Body, Depends, HTTPException
 from sqlalchemy.exc import IntegrityError, DataError, ProgrammingError
 from sqlalchemy.orm import Session
 
-from app.api.serializers import server_to_dict
+from app.api.serializers import item_to_dict, server_to_dict
 from app.auth import get_current_user, require_writer
 from app.db.base import get_db
-from app.db.models import AuditLog, Profile, Server
+from app.db.models import AuditLog, Part, PartItem, Profile, Server
 from app.services import bmc as bmc_svc
 
 router = APIRouter()
@@ -197,3 +197,31 @@ async def server_bmc(
     if not s:
         raise HTTPException(404, "server not found")
     return await bmc_svc.get_status(s, force_refresh=refresh)
+
+
+@router.get("/servers/{sid}/installed-items")
+def server_installed_items(
+    sid: str,
+    db: Session = Depends(get_db),
+    _: Profile = Depends(get_current_user),
+):
+    s = db.get(Server, sid)
+    if not s:
+        raise HTTPException(404, "server not found")
+    items = (
+        db.query(PartItem)
+        .filter(PartItem.installed_server_id == sid)
+        .order_by(PartItem.created_at.desc())
+        .all()
+    )
+    out = []
+    for it in items:
+        d = item_to_dict(it, s.hostname)
+        # add part model info
+        p = db.get(Part, it.part_id)
+        d["partBrand"] = p.brand if p else ""
+        d["partModel"] = p.model if p else ""
+        d["partSpec"] = p.spec if p else ""
+        d["partCategory"] = p.category if p else ""
+        out.append(d)
+    return out

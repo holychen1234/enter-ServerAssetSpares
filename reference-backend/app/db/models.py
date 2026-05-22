@@ -109,11 +109,38 @@ class Part(Base):
     created_at = Column(DateTime, default=_utc_now, nullable=False)
 
 
+class PartItem(Base):
+    """Individual physical spare part with its own serial number."""
+    __tablename__ = "part_items"
+    id = Column(CHAR(36), primary_key=True)
+    part_id = Column(
+        CHAR(36), ForeignKey("parts.id", ondelete="CASCADE"), nullable=False
+    )
+    sn = Column(String(128), nullable=True, unique=True)
+    status = Column(
+        Enum(
+            "in_stock", "allocated", "in_use", "scrapped",
+            name="part_item_status",
+        ),
+        nullable=False,
+        default="in_stock",
+    )
+    location = Column(String(128), nullable=True)
+    installed_server_id = Column(
+        CHAR(36), ForeignKey("servers.id", ondelete="SET NULL"), nullable=True
+    )
+    remark = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=_utc_now, nullable=False)
+
+
 class StockMovement(Base):
     __tablename__ = "stock_movements"
     __table_args__ = (CheckConstraint("quantity > 0"),)
     id = Column(CHAR(36), primary_key=True)
     part_id = Column(CHAR(36), ForeignKey("parts.id"), nullable=False)
+    part_item_id = Column(
+        CHAR(36), ForeignKey("part_items.id", ondelete="SET NULL"), nullable=True
+    )
     type = Column(
         Enum("inbound", "outbound", "return", "scrap", name="movement_type"),
         nullable=False,

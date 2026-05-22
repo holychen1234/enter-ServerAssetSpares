@@ -1,6 +1,7 @@
+import { useMemo } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { getBmcStatus, getServer, listMovements, listAuditLogs } from "@/lib/api/cmdb";
+import { getBmcStatus, getServer, listMovements, listAuditLogs, listInstalledItems, lookupItemsBySns } from "@/lib/api/cmdb";
 import { PageHeader } from "@/components/cmdb/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -28,6 +29,11 @@ export default function ServerDetail() {
     queryKey: ["movements"],
     queryFn: listMovements,
   });
+  const { data: installedItems = [] } = useQuery({
+    queryKey: ["installed-items", id],
+    queryFn: () => listInstalledItems(id),
+    enabled: !!id,
+  });
   // Audit entries that touched this server. The convention used everywhere
   // in the backend is `target = "srv:<hostname>"`, so we filter by it.
   const { data: auditPage } = useQuery({
@@ -38,6 +44,26 @@ export default function ServerDetail() {
   });
   const serverLogs = auditPage?.items ?? [];
   const related = movements.filter((m) => m.relatedServerId === id);
+
+  // Collect drive SNs for PartItem cross-reference
+  const driveSns = useMemo(() => {
+    if (!status?.drives) return [];
+    return status.drives.map((d) => d.sn).filter(Boolean) as string[];
+  }, [status?.drives]);
+
+  const { data: matchedItems = [] } = useQuery({
+    queryKey: ["part-items-by-sn", driveSns],
+    queryFn: () => lookupItemsBySns(driveSns),
+    enabled: driveSns.length > 0,
+  });
+
+  const itemSnMap = useMemo(() => {
+    const map: Record<string, { itemId: string; partId: string }> = {};
+    for (const it of matchedItems) {
+      if (it.sn) map[it.sn] = { itemId: it.id, partId: it.partId };
+    }
+    return map;
+  }, [matchedItems]);
 
   if (isLoading) {
     return <div className="text-sm text-muted-foreground">加载中…</div>;
@@ -160,34 +186,115 @@ export default function ServerDetail() {
 
         <TabsContent value="bmc">
           {status ? (
-            <BmcLiveCard status={status} loading={isFetching} />
+            <BmcLiveCard status={status} loading={isFetching} itemSnMap={itemSnMap} />
           ) : (
             <Card><CardContent className="p-8 text-center text-muted-foreground">加载 BMC 数据中…</CardContent></Card>
           )}
         </TabsContent>
 
-        <TabsContent value="parts">
+        <TabsContent value="parts" className="space-y-4">
+          {/* Currently installed items */}
           <Card className="shadow-card-soft">
-            <CardHeader><CardTitle className="text-base">该主机历史耗材</CardTitle></CardHeader>
+            <CardHeader>
+              <CardTitle className="text-base">
+                当前安装部件
+                <span className="ml-2 text-xs font-normal text-muted-foreground">
+                  共 {installedItems.length} 件
+                </span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {installedItems.length === 0 ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">
+                  暂无已安装部件记录
+                </p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-left text-xs text-muted-foreground">
+                        <th className="pb-2 font-normal">SN</th>
+                        <th className="pb-2 font-normal">类别</th>
+                        <th className="pb-2 font-normal">型号</th>
+                        <th className="pb-2 font-normal">规格</th>
+                        <th className="pb-2 font-normal">状态</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {installedItems.map((it) => (
+                        <tr key={it.id} className="border-b border-border/50">
+                          <td className="py-2 pr-3 font-mono text-xs">
+                            <Link
+                              to={`/inventory/parts/${it.partId}`}
+                              className="text-primary hover:underline"
+                            >
+                              {it.sn || "—"}
+                            </Link>
+                          </td>
+                          <td className="py-2 text-xs">
+                            {CAT_LABEL[it.partCategory || "other"]}
+                          </td>
+                          <td className="py-2 text-xs text-muted-foreground">
+                            {it.partBrand} {it.partModel}
+                          </td>
+                          <td className="py-2 text-xs text-muted-foreground">
+                            {it.partSpec}
+                          </td>
+                          <td className="py-2">
+                            <StatusBadge kind="part" value={it.status} />
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Historical movements */}
+          <Card className="shadow-card-soft">
+            <CardHeader>
+              <CardTitle className="text-base">该主机历史耗材记录</CardTitle>
+            </CardHeader>
             <CardContent>
               {related.length === 0 ? (
-                <p className="py-6 text-center text-sm text-muted-foreground">暂无关联备件出库记录</p>
+                <p className="py-6 text-center text-sm text-muted-foreground">
+                  暂无关联备件出库记录
+                </p>
               ) : (
                 <div className="divide-y divide-border">
                   {related.map((m) => (
-                    <div key={m.id} className="flex items-center justify-between py-3">
+                    <div
+                      key={m.id}
+                      className="flex items-center justify-between py-3"
+                    >
                       <div>
                         <div className="flex items-center gap-2">
                           <StatusBadge kind="movement" value={m.type} />
-                          <Link to={`/inventory/parts/${m.partId}`} className="text-sm font-medium text-foreground hover:text-primary">
+                          <Link
+                            to={`/inventory/parts/${m.partId}`}
+                            className="text-sm font-medium text-foreground hover:text-primary"
+                          >
                             {m.partModel}
                           </Link>
+                          {m.partItemSn && (
+                            <span className="font-mono text-xs text-muted-foreground">
+                              SN: {m.partItemSn}
+                            </span>
+                          )}
                         </div>
-                        <p className="mt-0.5 text-xs text-muted-foreground">{m.operator} · {m.reason}</p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                          {m.operator} · {m.reason}
+                        </p>
                       </div>
                       <div className="text-right">
-                        <div className="font-mono text-sm font-medium">x{m.quantity}</div>
-                        <div className="text-[10px] text-muted-foreground">{new Date(m.time).toLocaleString()}</div>
+                        <div className="font-mono text-sm font-medium">
+                          x{m.quantity}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground">
+                          {new Date(m.time).toLocaleString()}
+                        </div>
                       </div>
                     </div>
                   ))}

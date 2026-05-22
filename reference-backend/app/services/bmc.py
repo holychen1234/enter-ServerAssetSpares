@@ -142,6 +142,7 @@ def _simulate(server: Server) -> dict:
             {
                 "name": f"Disk.Bay.{i+1}",
                 "model": "—",
+                "sn": None,
                 "capacityGB": 0,
                 "mediaType": "—",
                 "status": "Unknown" if is_offline else "—",
@@ -298,6 +299,7 @@ async def _redfish_storage_modern(
                 {
                     "name": d.get("Name") or d.get("Id") or "?",
                     "model": d.get("Model") or "—",
+                    "sn": d.get("SerialNumber") or None,
                     "capacityGB": (
                         round(cap_bytes / (1024**3), 0) if cap_bytes else 0
                     ),
@@ -333,6 +335,7 @@ async def _redfish_storage_simple(
                 {
                     "name": dev.get("Name") or f"Disk.Bay.{i+1}",
                     "model": dev.get("Model") or "—",
+                    "sn": dev.get("SerialNumber") or None,
                     "capacityGB": (
                         round(cap_bytes / (1024**3), 0) if cap_bytes else 0
                     ),

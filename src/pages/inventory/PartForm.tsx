@@ -28,8 +28,6 @@ const schema = z.object({
   brand: z.string().min(1, "必填"),
   model: z.string().min(1, "必填"),
   spec: z.string().min(1, "必填"),
-  sn: z.string().optional(),
-  stock: z.coerce.number().int().min(0),
   safetyStock: z.coerce.number().int().min(0),
   unit: z.string().min(1, "必填"),
   location: z.string().min(1, "必填"),
@@ -44,8 +42,6 @@ const EMPTY: PartFormData = {
   brand: "",
   model: "",
   spec: "",
-  sn: "",
-  stock: 0,
   safetyStock: 0,
   unit: "块",
   location: "",
@@ -79,8 +75,6 @@ export function PartForm({ open, initial, onClose, onSubmit }: Props) {
           brand: initial.brand,
           model: initial.model,
           spec: initial.spec,
-          sn: initial.sn,
-          stock: initial.stock,
           safetyStock: initial.safetyStock,
           unit: initial.unit,
           location: initial.location,
@@ -135,14 +129,8 @@ export function PartForm({ open, initial, onClose, onSubmit }: Props) {
           <Field label="规格" error={form.formState.errors.spec?.message} className="sm:col-span-2">
             <Input {...form.register("spec")} placeholder="例如 1.92TB U.2 NVMe SSD" />
           </Field>
-          <Field label="单件 SN（可选）">
-            <Input {...form.register("sn")} />
-          </Field>
           <Field label="单位">
             <Input {...form.register("unit")} />
-          </Field>
-          <Field label="当前库存">
-            <Input type="number" min={0} {...form.register("stock")} />
           </Field>
           <Field label="安全库存">
             <Input type="number" min={0} {...form.register("safetyStock")} />

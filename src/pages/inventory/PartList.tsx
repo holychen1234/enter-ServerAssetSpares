@@ -67,7 +67,12 @@ export default function PartList() {
 
   const mCreate = useMutation({
     mutationFn: createPart,
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["parts"] }); toast({ title: "备件已新增" }); setFormOpen(false); },
+    onSuccess: (data: Part) => {
+      qc.invalidateQueries({ queryKey: ["parts"] });
+      toast({ title: "备件已新增，请添加单件" });
+      setFormOpen(false);
+      navigate(`/inventory/parts/${data.id}`);
+    },
   });
   const mUpdate = useMutation({
     mutationFn: (v: { id: string; patch: Partial<Part> }) => updatePart(v.id, v.patch),
@@ -169,7 +174,13 @@ export default function PartList() {
                         <span className={cn("font-mono text-base font-semibold", low ? "text-danger" : "text-foreground")}>
                           {p.stock}
                         </span>
-                        <span className="text-xs text-muted-foreground">/ {p.safetyStock} {p.unit}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {p.itemCount > 0 ? (
+                            <>{p.itemCount}件 (在库{p.statusCounts.in_stock || 0}, 在用{p.statusCounts.in_use || 0}, 报废{p.statusCounts.scrapped || 0})</>
+                          ) : (
+                            <>/ {p.safetyStock} {p.unit}</>
+                          )}
+                        </span>
                         {low && <AlertTriangle className="h-4 w-4 text-danger" />}
                       </div>
                     </TableCell>

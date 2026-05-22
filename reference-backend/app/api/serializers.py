@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Iterable
 
-from app.db.models import AuditLog, Part, Profile, Server, StockMovement
+from app.db.models import AuditLog, Part, PartItem, Profile, Server, StockMovement
 
 
 def server_to_dict(s: Server) -> dict:
@@ -39,7 +39,21 @@ def server_to_dict(s: Server) -> dict:
     }
 
 
-def part_to_dict(p: Part) -> dict:
+def item_to_dict(it: PartItem, server_hostname: str | None = None) -> dict:
+    return {
+        "id": it.id,
+        "partId": it.part_id,
+        "sn": it.sn,
+        "status": it.status,
+        "location": it.location,
+        "installedServerId": it.installed_server_id,
+        "installedServerHostname": server_hostname,
+        "remark": it.remark,
+        "createdAt": it.created_at.isoformat(),
+    }
+
+
+def part_to_dict(p: Part, item_count: int | None = None, status_counts: dict | None = None) -> dict:
     return {
         "id": p.id,
         "category": p.category,
@@ -52,6 +66,8 @@ def part_to_dict(p: Part) -> dict:
         "unit": p.unit,
         "location": p.location,
         "status": p.status,
+        "itemCount": item_count if item_count is not None else p.stock,
+        "statusCounts": status_counts or {},
         "remark": p.remark,
         "createdAt": p.created_at.isoformat(),
     }
@@ -86,7 +102,10 @@ def audit_to_dict(a: AuditLog) -> dict:
 
 
 def movement_to_dict(
-    m: StockMovement, part: Part | None, server: Server | None
+    m: StockMovement,
+    part: Part | None,
+    server: Server | None,
+    part_item: PartItem | None = None,
 ) -> dict:
     return {
         "id": m.id,
@@ -98,6 +117,8 @@ def movement_to_dict(
         "operator": m.operator,
         "relatedServerId": m.related_server_id,
         "relatedServerHostname": server.hostname if server else None,
+        "partItemId": m.part_item_id,
+        "partItemSn": part_item.sn if part_item else None,
         "reason": m.reason,
         "time": m.created_at.isoformat(),
     }

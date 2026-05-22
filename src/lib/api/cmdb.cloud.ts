@@ -7,6 +7,7 @@ import type {
   AuditEntry,
   BmcStatus,
   Part,
+  PartItem,
   Server,
   StockMovement,
 } from "@/types/cmdb";
@@ -279,6 +280,34 @@ export async function createMovement(
     .single();
   if (error) throw error;
   return rowToMovement(row);
+}
+
+// ---------- Part Items (not supported on cloud / Supabase) ----------
+export async function listPartItems(_partId: string): Promise<PartItem[]> {
+  return [];
+}
+export async function getPartItem(_id: string): Promise<PartItem | undefined> {
+  return undefined;
+}
+export async function lookupItemBySn(_sn: string): Promise<PartItem | undefined> {
+  return undefined;
+}
+export async function lookupItemsBySns(_sns: string[]): Promise<PartItem[]> {
+  return [];
+}
+export async function createPartItems(
+  _partId: string, _items: { sn?: string; location?: string }[],
+): Promise<PartItem[]> {
+  return [];
+}
+export async function updatePartItem(
+  _id: string, _patch: Partial<PartItem>,
+): Promise<PartItem> {
+  throw new Error("Part items not supported on cloud backend");
+}
+export async function deletePartItem(_id: string): Promise<void> {}
+export async function listInstalledItems(_serverId: string): Promise<PartItem[]> {
+  return [];
 }
 
 // ---------- Users (profiles) ----------

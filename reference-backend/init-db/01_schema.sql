@@ -68,20 +68,39 @@ CREATE TABLE IF NOT EXISTS parts (
   CHECK (stock >= 0)
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS part_items (
+  id                   CHAR(36)     NOT NULL PRIMARY KEY,
+  part_id              CHAR(36)     NOT NULL,
+  sn                   VARCHAR(128) NULL UNIQUE,
+  status               ENUM('in_stock','allocated','in_use','scrapped') NOT NULL DEFAULT 'in_stock',
+  location             VARCHAR(128) NULL,
+  installed_server_id  CHAR(36)     NULL,
+  remark               TEXT         NULL,
+  created_at           DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_part_item_part    FOREIGN KEY (part_id)             REFERENCES parts(id) ON DELETE CASCADE,
+  CONSTRAINT fk_part_item_server  FOREIGN KEY (installed_server_id) REFERENCES servers(id) ON DELETE SET NULL,
+  INDEX idx_part_items_part   (part_id),
+  INDEX idx_part_items_status (status),
+  INDEX idx_part_items_server (installed_server_id)
+) ENGINE=InnoDB;
+
 CREATE TABLE IF NOT EXISTS stock_movements (
   id                  CHAR(36)     NOT NULL PRIMARY KEY,
   part_id             CHAR(36)     NOT NULL,
+  part_item_id        CHAR(36)     NULL,
   type                ENUM('inbound','outbound','return','scrap') NOT NULL,
   quantity            INT          NOT NULL,
   operator            VARCHAR(64)  NOT NULL,
   related_server_id   CHAR(36)     NULL,
   reason              VARCHAR(255) NOT NULL,
   created_at          DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT fk_movement_part   FOREIGN KEY (part_id)           REFERENCES parts(id) ON DELETE CASCADE,
-  CONSTRAINT fk_movement_server FOREIGN KEY (related_server_id) REFERENCES servers(id) ON DELETE SET NULL,
-  INDEX idx_movements_part   (part_id),
-  INDEX idx_movements_server (related_server_id),
-  INDEX idx_movements_time   (created_at DESC),
+  CONSTRAINT fk_movement_part      FOREIGN KEY (part_id)           REFERENCES parts(id) ON DELETE CASCADE,
+  CONSTRAINT fk_movement_part_item FOREIGN KEY (part_item_id)      REFERENCES part_items(id) ON DELETE SET NULL,
+  CONSTRAINT fk_movement_server    FOREIGN KEY (related_server_id) REFERENCES servers(id) ON DELETE SET NULL,
+  INDEX idx_movements_part      (part_id),
+  INDEX idx_movements_part_item (part_item_id),
+  INDEX idx_movements_server    (related_server_id),
+  INDEX idx_movements_time      (created_at DESC),
   CHECK (quantity > 0)
 ) ENGINE=InnoDB;
 

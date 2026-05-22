@@ -5,6 +5,7 @@ import type {
   AppUser,
   BmcStatus,
   Part,
+  PartItem,
   Server,
   StockMovement,
 } from "@/types/cmdb";
@@ -159,6 +160,62 @@ export async function createMovement(
     method: "POST",
     body: data,
   });
+}
+
+// ---------- Part Items ----------
+export async function listPartItems(partId: string): Promise<PartItem[]> {
+  return api<PartItem[]>(`/parts/${partId}/items`);
+}
+
+export async function getPartItem(id: string): Promise<PartItem | undefined> {
+  try {
+    return await api<PartItem>(`/part-items/${id}`);
+  } catch {
+    return undefined;
+  }
+}
+
+export async function lookupItemBySn(sn: string): Promise<PartItem | undefined> {
+  try {
+    return await api<PartItem>(`/part-items?sn=${encodeURIComponent(sn)}`);
+  } catch {
+    return undefined;
+  }
+}
+
+export async function lookupItemsBySns(sns: string[]): Promise<PartItem[]> {
+  if (!sns.length) return [];
+  return api<PartItem[]>("/part-items/lookup-batch", {
+    method: "POST",
+    body: { sns },
+  });
+}
+
+export async function createPartItems(
+  partId: string,
+  items: { sn?: string; location?: string; remark?: string }[],
+): Promise<PartItem[]> {
+  return api<PartItem[]>(`/parts/${partId}/items`, {
+    method: "POST",
+    body: { items },
+  });
+}
+
+export async function updatePartItem(
+  id: string,
+  patch: Partial<PartItem>,
+): Promise<PartItem> {
+  return api<PartItem>(`/part-items/${id}`, { method: "PATCH", body: patch });
+}
+
+export async function deletePartItem(id: string): Promise<void> {
+  await api<void>(`/part-items/${id}`, { method: "DELETE" });
+}
+
+export async function listInstalledItems(
+  serverId: string,
+): Promise<PartItem[]> {
+  return api<PartItem[]>(`/servers/${serverId}/installed-items`);
 }
 
 // ---------- Users ----------

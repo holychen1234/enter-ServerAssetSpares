@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +30,8 @@ import {
 interface Props {
   status: BmcStatus;
   loading?: boolean;
+  /** Map of drive SN → PartItem info for cross-reference. */
+  itemSnMap?: Record<string, { itemId: string; partId: string }>;
 }
 
 function SourceBadge({ status }: { status: BmcStatus }) {
@@ -57,7 +60,7 @@ function healthColor(h: string) {
   return "bg-danger/10 text-danger border-danger/30";
 }
 
-export function BmcLiveCard({ status, loading }: Props) {
+export function BmcLiveCard({ status, loading, itemSnMap }: Props) {
   return (
     <div className="grid gap-4 lg:grid-cols-3">
       {/* ===== Row 1: Overall + CPU/Memory + Chart ===== */}
@@ -235,7 +238,24 @@ export function BmcLiveCard({ status, loading }: Props) {
                       </span>
                       <span className="text-xs text-muted-foreground">{d.mediaType}</span>
                     </div>
-                    <p className="text-xs text-muted-foreground">{d.model}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {d.model}
+                      {d.sn && (
+                        <span className="ml-2 font-mono text-[10px]">
+                          SN:{" "}
+                          {itemSnMap?.[d.sn] ? (
+                            <Link
+                              to={`/inventory/parts/${itemSnMap[d.sn].partId}`}
+                              className="text-primary hover:underline"
+                            >
+                              {d.sn}
+                            </Link>
+                          ) : (
+                            <span className="text-primary">{d.sn}</span>
+                          )}
+                        </span>
+                      )}
+                    </p>
                   </div>
                   <div className="text-right font-mono text-sm font-medium text-foreground">
                     {d.capacityGB >= 1000
