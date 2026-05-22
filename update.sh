@@ -185,21 +185,48 @@ docker cp reference-backend/app/. "$API_CONTAINER":/app/app/
 ok "后端代码已注入容器"
 
 # ---- 更新前端到 web 容器 ----
-WEB_CONTAINER=$(docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" ps -q web 2>/dev/null)
-if [ -n "$WEB_CONTAINER" ] && [ -d "dist" ]; then
-    docker cp dist/. "$WEB_CONTAINER":/tmp/html-new/
-            if docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" exec -T web sh -c "cp -r /tmp/html-new/. /usr/share/nginx/html/ && rm -rf /tmp/html-new" 2>/dev/null; then
-                ok "前端已更新到 web 容器"
-            else
-                warn "前端更新到 web 容器失败，请手动复制"
-            fi
+# dist/ 只在 .dockerignore 中被排除，使用独立构建上下文打包进镜像，
+# 避免 readonly 容器文件系统导致 docker cp 失败。
+if [ -d "dist" ]; then
+    log "重建 web 镜像..."
+    WEB_CTX=".web-build-ctx"
+    rm -rf "$WEB_CTX"
+    mkdir -p "$WEB_CTX"
+    cp -a dist "$WEB_CTX/dist"
+    mkdir -p "$WEB_CTX/nginx"
+    cp reference-backend/nginx/default.conf "$WEB_CTX/nginx/default.conf"
+
+    if docker build -t "${COMPOSE_PROJECT}_web:latest" -f - "$WEB_CTX" <<'DOCKERFILE'
+FROM nginx:latest
+COPY dist /usr/share/nginx/html
+COPY nginx/default.conf /etc/nginx/conf.d/default.conf
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
+DOCKERFILE
+    then
+        rm -rf "$WEB_CTX"
+        docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" stop web 2>/dev/null || true
+        docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" rm -f web 2>/dev/null || true
+        WEB_PORT="${WEB_PORT:-8080}"
+        docker run -d \
+            --name "${COMPOSE_PROJECT}-web-1" \
+            --network "${COMPOSE_PROJECT}_default" \
+            --restart unless-stopped \
+            --label "com.docker.compose.project=${COMPOSE_PROJECT}" \
+            --label "com.docker.compose.service=web" \
+            -p "${WEB_PORT}:80" \
+            "${COMPOSE_PROJECT}_web:latest"
+        ok "web 容器已重建"
+    else
+        rm -rf "$WEB_CTX"
+        warn "web 镜像构建失败，跳过 web 更新"
+    fi
 fi
 
-# ---- 重启服务 ----
-# 用 restart 而不是 --force-recreate，否则 docker cp 注入的代码会被丢弃
-log "重启服务..."
-docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" restart api web
-ok "服务已重启"
+# ---- 重启 api ----
+log "重启 API 容器..."
+docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" restart api
+ok "API 容器已重启"
 
 # ---- 清理 ----
 rm -rf dist.bak
@@ -209,4 +236,4 @@ ok "升级完成"
 echo ""
 echo "  访问控制台确认功能正常。"
 echo "  如遇问题可回滚数据库:"
-echo "    gunzip -c $BACKUP_DIR/pre-update-${TS}.sql.gz | docker compose -f $COMPOSE_FILE -p $COMPOSE_PROJECT exec -T mysql mysql -u"'${MYSQL_USER}'" -p"'${MYSQL_PASSWORD}'" "'${MYSQL_DATABASE}'"
+echo "    gunzip -c $BACKUP_DIR/pre-update-${TS}.sql.gz | docker compose -f $COMPOSE_FILE -p $COMPOSE_PROJECT exec -T mysql mysql -u\${MYSQL_USER:-cmdb} -p\${MYSQL_PASSWORD:-cmdb123} \${MYSQL_DATABASE:-cmdb}"
