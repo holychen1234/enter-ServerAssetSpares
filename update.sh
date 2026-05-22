@@ -59,11 +59,14 @@ TS=$(date +%Y%m%d-%H%M%S)
 ENV_FILE="reference-backend/.env"
 if [ -f "$ENV_FILE" ]; then
     set -a; source "$ENV_FILE"; set +a
-    docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" exec -T mysql \
+    if docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" exec -T mysql \
         mysqldump -u"${MYSQL_USER:-cmdb}" -p"${MYSQL_PASSWORD:-cmdb123}" \
         --single-transaction --routines --triggers "${MYSQL_DATABASE:-cmdb}" \
-        2>/dev/null | gzip > "$BACKUP_DIR/pre-update-${TS}.sql.gz"
-    ok "备份完成: $BACKUP_DIR/pre-update-${TS}.sql.gz"
+        2>/dev/null | gzip > "$BACKUP_DIR/pre-update-${TS}.sql.gz"; then
+        ok "备份完成: $BACKUP_DIR/pre-update-${TS}.sql.gz"
+    else
+        warn "数据库备份失败（容器可能未运行），跳过备份继续升级"
+    fi
 else
     warn ".env 不存在，跳过数据库备份"
 fi
