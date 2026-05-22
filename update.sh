@@ -187,8 +187,12 @@ ok "后端代码已注入容器"
 # ---- 更新前端到 web 容器 ----
 WEB_CONTAINER=$(docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" ps -q web 2>/dev/null)
 if [ -n "$WEB_CONTAINER" ] && [ -d "dist" ]; then
-    docker cp dist/. "$WEB_CONTAINER":/usr/share/nginx/html/
-    ok "前端已更新到 web 容器"
+    docker cp dist/. "$WEB_CONTAINER":/tmp/html-new/
+            if docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" exec -T web sh -c "cp -r /tmp/html-new/. /usr/share/nginx/html/ && rm -rf /tmp/html-new" 2>/dev/null; then
+                ok "前端已更新到 web 容器"
+            else
+                warn "前端更新到 web 容器失败，请手动复制"
+            fi
 fi
 
 # ---- 重启服务 ----
