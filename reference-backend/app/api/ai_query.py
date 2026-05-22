@@ -1,12 +1,15 @@
-"""AI query endpoints for Feishu Aily integration.
+"""AI query endpoints for Feishu Aily / Dify integration.
 
-Aily calls these tools via HTTP with an X-API-Key header.
+Aily/Dify calls these tools via HTTP with an X-API-Key header.
 Each endpoint is designed as a discrete "tool" with clear
-input/output schemas so Aily can route user questions correctly."""
+input/output schemas so the AI agent can route user questions correctly."""
 
+import json
+import os
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi.responses import JSONResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -202,3 +205,13 @@ def get_server_stats(
         "total": sum(c for _, c in rows),
         "items": [{"key": k, "count": c} for k, c in rows],
     }
+
+
+# ── OpenAPI schema (no auth — Dify needs to fetch it for import) ─
+
+@router.get("/openapi.json", include_in_schema=False)
+def openapi_schema():
+    """Serve the OpenAPI 3.0 spec for Dify tool import."""
+    schema_path = os.path.join(os.path.dirname(__file__), "ai_openapi.json")
+    with open(schema_path, "r", encoding="utf-8") as f:
+        return JSONResponse(content=json.load(f))

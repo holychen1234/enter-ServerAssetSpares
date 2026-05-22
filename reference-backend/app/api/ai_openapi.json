@@ -1,0 +1,220 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "CMDB AI 查询工具包",
+    "description": "主机资产管理与备件库存查询接口，供 Dify / Aily 等 AI Agent 平台调用。所有接口通过 X-API-Key 鉴权。",
+    "version": "1.0.0"
+  },
+  "servers": [
+    {
+      "url": "https://your-domain.com/api",
+      "description": "CMDB 私有部署地址，替换 your-domain.com 为实际域名或 IP"
+    }
+  ],
+  "security": [
+    {
+      "ApiKeyAuth": []
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-API-Key",
+        "description": "在 CMDB 后端 .env 中 AI_API_KEY 配置的密钥"
+      }
+    }
+  },
+  "paths": {
+    "/ai/search-servers": {
+      "get": {
+        "operationId": "search_servers",
+        "summary": "搜索主机资产",
+        "description": "按关键词或多条件搜索主机资产列表，返回主机名、SN、型号、CPU、内存、磁盘、IP、位置等信息。适用场景：用户问「数据库服务器有几台」「查一下 DB-SH 开头的机器」「IDC-A 有哪些在线服务器」等。",
+        "parameters": [
+          {"name": "keyword", "in": "query", "required": false, "schema": {"type": "string"}, "description": "任意关键词，模糊匹配主机名/SN/资产编号/IP/型号/厂商/CPU型号/IDC/备注"},
+          {"name": "hostname", "in": "query", "required": false, "schema": {"type": "string"}, "description": "主机名精确匹配"},
+          {"name": "sn", "in": "query", "required": false, "schema": {"type": "string"}, "description": "SN序列号精确匹配"},
+          {"name": "ip", "in": "query", "required": false, "schema": {"type": "string"}, "description": "IP地址匹配（业务IP或管理IP）"},
+          {"name": "model", "in": "query", "required": false, "schema": {"type": "string"}, "description": "服务器型号"},
+          {"name": "manufacturer", "in": "query", "required": false, "schema": {"type": "string"}, "description": "厂商"},
+          {"name": "status", "in": "query", "required": false, "schema": {"type": "string", "enum": ["online", "offline", "maintenance", "retired"]}, "description": "状态过滤"},
+          {"name": "idc", "in": "query", "required": false, "schema": {"type": "string"}, "description": "IDC机房过滤"},
+          {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "default": 20, "minimum": 1, "maximum": 100}, "description": "返回条数上限"}
+        ],
+        "responses": {
+          "200": {
+            "description": "匹配的主机列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "count": {"type": "integer"},
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "hostname": {"type": "string"},
+                          "sn": {"type": "string"},
+                          "assetTag": {"type": "string"},
+                          "manufacturer": {"type": "string"},
+                          "model": {"type": "string"},
+                          "cpuModel": {"type": "string"},
+                          "cpuCount": {"type": "integer"},
+                          "memoryGB": {"type": "integer"},
+                          "diskCount": {"type": "integer"},
+                          "status": {"type": "string"},
+                          "mgmtIp": {"type": "string"},
+                          "bizIp": {"type": "string"},
+                          "location": {
+                            "type": "object",
+                            "properties": {
+                              "idc": {"type": "string"},
+                              "rack": {"type": "string"},
+                              "uPosition": {"type": "string"}
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ai/get-server-detail": {
+      "get": {
+        "operationId": "get_server_detail",
+        "summary": "获取主机完整详情",
+        "description": "根据主机名或SN序列号获取单台主机的全部资产信息。适用场景：用户问「DB-SH-01 的 CPU 型号是什么」「SN:ABC123 的内存多大」等。",
+        "parameters": [
+          {"name": "identifier", "in": "query", "required": true, "schema": {"type": "string"}, "description": "主机名或SN序列号"}
+        ],
+        "responses": {
+          "200": {
+            "description": "主机详情",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "found": {"type": "boolean"},
+                    "message": {"type": "string"},
+                    "hostname": {"type": "string"},
+                    "sn": {"type": "string"},
+                    "cpuModel": {"type": "string"},
+                    "cpuCount": {"type": "integer"},
+                    "memoryGB": {"type": "integer"},
+                    "diskCount": {"type": "integer"},
+                    "status": {"type": "string"},
+                    "mgmtIp": {"type": "string"},
+                    "bizIp": {"type": "string"},
+                    "location": {
+                      "type": "object",
+                      "properties": {
+                        "idc": {"type": "string"},
+                        "rack": {"type": "string"},
+                        "uPosition": {"type": "string"}
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ai/search-parts": {
+      "get": {
+        "operationId": "search_parts",
+        "summary": "搜索备件库存",
+        "description": "按关键词或多条件搜索备件库存，返回类别、品牌、型号、规格、库存数量、安全库存、存放位置。适用场景：用户问「2TB SSD 还有多少」「Intel 内存的库存」「有哪些网卡」等。",
+        "parameters": [
+          {"name": "keyword", "in": "query", "required": false, "schema": {"type": "string"}, "description": "任意关键词，模糊匹配品牌/型号/规格/SN/备注"},
+          {"name": "category", "in": "query", "required": false, "schema": {"type": "string", "enum": ["disk", "memory", "nic", "optical", "other"]}, "description": "类别"},
+          {"name": "brand", "in": "query", "required": false, "schema": {"type": "string"}, "description": "品牌"},
+          {"name": "model", "in": "query", "required": false, "schema": {"type": "string"}, "description": "型号"},
+          {"name": "spec", "in": "query", "required": false, "schema": {"type": "string"}, "description": "规格，如 2TB SSD / DDR4 3200"},
+          {"name": "status", "in": "query", "required": false, "schema": {"type": "string", "enum": ["in_stock", "allocated", "in_use", "scrapped"]}, "description": "状态过滤"},
+          {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "default": 20, "minimum": 1, "maximum": 100}, "description": "返回条数上限"}
+        ],
+        "responses": {
+          "200": {
+            "description": "匹配的备件列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "count": {"type": "integer"},
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "category": {"type": "string", "enum": ["disk", "memory", "nic", "optical", "other"]},
+                          "brand": {"type": "string"},
+                          "model": {"type": "string"},
+                          "spec": {"type": "string"},
+                          "sn": {"type": "string"},
+                          "stock": {"type": "integer"},
+                          "safetyStock": {"type": "integer"},
+                          "unit": {"type": "string"},
+                          "location": {"type": "string"},
+                          "status": {"type": "string"}
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ai/get-server-stats": {
+      "get": {
+        "operationId": "get_server_stats",
+        "summary": "统计主机资产概况",
+        "description": "按指定维度统计主机数量分布。适用场景：用户问「各机房有多少台机器」「在线和离线分别多少台」「各厂商服务器分布」等。",
+        "parameters": [
+          {"name": "group_by", "in": "query", "required": false, "schema": {"type": "string", "enum": ["status", "idc", "manufacturer"], "default": "status"}, "description": "统计维度"}
+        ],
+        "responses": {
+          "200": {
+            "description": "统计数据",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "groupBy": {"type": "string"},
+                    "total": {"type": "integer"},
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "key": {"type": "string"},
+                          "count": {"type": "integer"}
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
