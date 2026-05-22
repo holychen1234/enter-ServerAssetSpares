@@ -58,16 +58,6 @@ def list_servers(
     return [server_to_dict(r) for r in rows]
 
 
-@router.get("/servers/{sid}")
-def get_server(
-    sid: str, db: Session = Depends(get_db), _: Profile = Depends(get_current_user)
-):
-    s = db.get(Server, sid)
-    if not s:
-        raise HTTPException(404, "server not found")
-    return server_to_dict(s)
-
-
 @router.post("/servers")
 def create_server(
     body: dict = Body(...),
@@ -96,6 +86,46 @@ def create_server(
         db.rollback()
         raise
     db.refresh(s)
+    return server_to_dict(s)
+
+
+@router.post("/servers/batch-delete", status_code=204)
+def batch_delete_servers(
+    body: dict = Body(...),
+    db: Session = Depends(get_db),
+    user: Profile = Depends(require_writer),
+):
+    ids: list[str] = (body or {}).get("ids") or []
+    if not ids:
+        raise HTTPException(400, "ids 不能为空")
+    if len(ids) > 200:
+        raise HTTPException(400, "单次最多删除 200 台主机")
+
+    servers = db.query(Server).filter(Server.id.in_(ids)).all()
+    hostnames = [s.hostname for s in servers]
+
+    for s in servers:
+        db.delete(s)
+    db.add(
+        AuditLog(
+            id=str(uuid.uuid4()),
+            actor=user.username,
+            action="server.batch_delete",
+            target=f"srv:{len(hostnames)}台主机",
+            detail=", ".join(hostnames),
+            level="warn",
+        )
+    )
+    db.commit()
+
+
+@router.get("/servers/{sid}")
+def get_server(
+    sid: str, db: Session = Depends(get_db), _: Profile = Depends(get_current_user)
+):
+    s = db.get(Server, sid)
+    if not s:
+        raise HTTPException(404, "server not found")
     return server_to_dict(s)
 
 
@@ -150,37 +180,6 @@ def delete_server(
             action="server.delete",
             target=f"srv:{hostname}",
             detail="删除服务器",
-            level="warn",
-        )
-    )
-    db.commit()
-
-
-@router.post("/servers/batch-delete", status_code=204)
-def batch_delete_servers(
-    body: dict = Body(...),
-    db: Session = Depends(get_db),
-    user: Profile = Depends(require_writer),
-):
-    ids: list[str] = (body or {}).get("ids") or []
-    if not ids:
-        raise HTTPException(400, "ids 不能为空")
-    if len(ids) > 200:
-        raise HTTPException(400, "单次最多删除 200 台主机")
-
-    servers = db.query(Server).filter(Server.id.in_(ids)).all()
-    found_ids = {s.id for s in servers}
-    hostnames = [s.hostname for s in servers]
-
-    for s in servers:
-        db.delete(s)
-    db.add(
-        AuditLog(
-            id=str(uuid.uuid4()),
-            actor=user.username,
-            action="server.batch_delete",
-            target=f"srv:{len(hostnames)}台主机",
-            detail=", ".join(hostnames),
             level="warn",
         )
     )
