@@ -53,7 +53,7 @@ zip -r "$OUTPUT" \
     vite.config.ts tsconfig.json tsconfig.app.json tsconfig.node.json \
     tailwind.config.ts postcss.config.js components.json eslint.config.js \
     update.sh \
-    -x "*/node_modules/*" "*/.git/*" "*/backups/*"
+    -x "*/node_modules/*" "*/.git/*" "*/backups/*" "*/__pycache__/*" "*.pyc"
 
 ok "打包完成: $OUTPUT ($(du -h "$OUTPUT" | cut -f1))"
 echo ""
