@@ -137,6 +137,9 @@ export default function ServerList() {
       setSelectedIds(new Set());
       setBatchDeleteOpen(false);
     },
+    onError: (err: Error) => {
+      toast({ title: "批量删除失败", description: err.message, variant: "destructive" });
+    },
   });
 
   const toggleSelect = (id: string) => {
@@ -398,7 +401,7 @@ export default function ServerList() {
         </AlertDialogContent>
       </AlertDialog>
 
-      <AlertDialog open={batchDeleteOpen} onOpenChange={setBatchDeleteOpen}>
+      <AlertDialog open={batchDeleteOpen} onOpenChange={(v) => !v && setBatchDeleteOpen(false)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>批量删除主机</AlertDialogTitle>
@@ -410,14 +413,13 @@ export default function ServerList() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>取消</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-danger text-danger-foreground hover:bg-danger/90"
-              onClick={() =>
-                mBatchDelete.mutate(Array.from(selectedIds))
-              }
+            <Button
+              variant="destructive"
+              disabled={mBatchDelete.isPending}
+              onClick={() => mBatchDelete.mutate(Array.from(selectedIds))}
             >
               删除 {selectedIds.size} 台主机
-            </AlertDialogAction>
+            </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
