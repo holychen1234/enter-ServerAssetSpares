@@ -10,6 +10,7 @@ export type Manufacturer =
   | "Inspur"
   | "Supermicro"
   | "Huawei"
+  | "XFusion"
   | "Other";
 
 export type BmcProtocol = "redfish" | "ipmi";

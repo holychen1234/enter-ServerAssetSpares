@@ -64,6 +64,14 @@ const CATEGORY_LABEL: Record<PartCategory, string> = {
   other: "其他",
 };
 
+const SPEC_PLACEHOLDER: Record<PartCategory, string> = {
+  disk: "例如 1.92TB U.2 NVMe SSD，填写接口、容量、尺寸等",
+  memory: "例如 64GB DDR4-3200 RDIMM，填写内存属性(DDR4/DDR5)、容量、频率等",
+  nic: "例如 ConnectX-5 双口 100GbE，填写端口数、速率、接口类型",
+  optical: "例如 10G SFP+ SR 850nm 300m，填写速率、封装、波长、距离",
+  other: "填写规格说明",
+};
+
 export function PartForm({ open, initial, onClose, onSubmit }: Props) {
   const form = useForm<PartFormData>({ resolver: zodResolver(schema), defaultValues: EMPTY });
 
@@ -127,7 +135,7 @@ export function PartForm({ open, initial, onClose, onSubmit }: Props) {
             <Input {...form.register("model")} />
           </Field>
           <Field label="规格" error={form.formState.errors.spec?.message} className="sm:col-span-2">
-            <Input {...form.register("spec")} placeholder="例如 1.92TB U.2 NVMe SSD" />
+            <Input {...form.register("spec")} placeholder={SPEC_PLACEHOLDER[form.watch("category")]} />
           </Field>
           <Field label="单位">
             <Input {...form.register("unit")} />

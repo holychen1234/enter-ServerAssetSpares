@@ -31,7 +31,7 @@ export const SERVER_COLUMNS = [
 
 const VALID_STATUSES: ServerStatus[] = ["online", "offline", "maintenance", "retired"];
 const VALID_MANUFACTURERS: Manufacturer[] = [
-  "Dell", "HPE", "Lenovo", "Inspur", "Supermicro", "Huawei", "Other",
+  "Dell", "HPE", "Lenovo", "Inspur", "Supermicro", "Huawei", "XFusion", "Other",
 ];
 const VALID_BMC_PROTOCOLS: BmcProtocol[] = ["redfish", "ipmi"];
 

@@ -27,7 +27,7 @@ const schema = z.object({
   hostname: z.string().min(1, "必填"),
   sn: z.string().min(1, "必填"),
   assetTag: z.string().min(1, "必填"),
-  manufacturer: z.enum(["Dell", "HPE", "Lenovo", "Inspur", "Supermicro", "Huawei", "Other"]),
+  manufacturer: z.enum(["Dell", "HPE", "Lenovo", "Inspur", "Supermicro", "Huawei", "XFusion", "Other"]),
   model: z.string().min(1, "必填"),
   cpuModel: z.string().min(1, "必填"),
   cpuCount: z.coerce.number().int().min(1).max(8),
@@ -171,8 +171,8 @@ export function ServerForm({ open, initial, onClose, onSubmit }: Props) {
             <Select value={form.watch("manufacturer")} onValueChange={(v) => form.setValue("manufacturer", v as ServerFormData["manufacturer"])}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                {["Dell", "HPE", "Lenovo", "Inspur", "Supermicro", "Huawei", "Other"].map((m) => (
-                  <SelectItem key={m} value={m}>{m}</SelectItem>
+                {(["Dell", "HPE", "Lenovo", "Inspur", "Supermicro", "Huawei", "XFusion", "Other"] as const).map((m) => (
+                  <SelectItem key={m} value={m}>{m === "XFusion" ? "超聚变" : m}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
