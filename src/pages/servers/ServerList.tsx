@@ -57,9 +57,19 @@ import {
   Monitor,
   Download,
   Upload,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { exportToCsv, exportToExcel, downloadBlob } from "@/lib/import-export";
+
+type SortField = "hostname" | "status" | "manufacturer";
+type SortOrder = "asc" | "desc";
+
+const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
 
 export default function ServerList() {
   const navigate = useNavigate();
@@ -82,6 +92,11 @@ export default function ServerList() {
   const [batchDeleteOpen, setBatchDeleteOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
 
+  const [sortField, setSortField] = useState<SortField>("hostname");
+  const [sortOrder, setSortOrder] = useState<SortOrder>("asc");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+
   const idcOptions = useMemo(() => {
     return Array.from(new Set(servers.map((s) => s.location.idc))).sort();
   }, [servers]);
@@ -103,6 +118,41 @@ export default function ServerList() {
       );
     });
   }, [servers, search, statusFilter, idcFilter]);
+
+  const sorted = useMemo(() => {
+    const arr = [...filtered];
+    arr.sort((a, b) => {
+      let va = "";
+      let vb = "";
+      switch (sortField) {
+        case "hostname":
+          va = a.hostname.toLowerCase();
+          vb = b.hostname.toLowerCase();
+          break;
+        case "status":
+          va = a.status;
+          vb = b.status;
+          break;
+        case "manufacturer":
+          va = a.manufacturer.toLowerCase();
+          vb = b.manufacturer.toLowerCase();
+          break;
+      }
+      if (va < vb) return sortOrder === "asc" ? -1 : 1;
+      if (va > vb) return sortOrder === "asc" ? 1 : -1;
+      return 0;
+    });
+    return arr;
+  }, [filtered, sortField, sortOrder]);
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
+
+  // Reset page to 1 when filters or sort change
+  const effectivePage = Math.min(page, totalPages);
+  const paged = useMemo(() => {
+    const start = (effectivePage - 1) * pageSize;
+    return sorted.slice(start, start + pageSize);
+  }, [sorted, effectivePage, pageSize]);
 
   const mCreate = useMutation({
     mutationFn: createServer,
@@ -157,6 +207,29 @@ export default function ServerList() {
     } else {
       setSelectedIds(new Set(filtered.map((s) => s.id)));
     }
+  };
+
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortField(field);
+      setSortOrder("asc");
+    }
+    setPage(1);
+  };
+
+  const SortIcon = ({ field }: { field: SortField }) => {
+    if (sortField !== field)
+      return <ArrowUpDown className="ml-1 h-3 w-3 text-muted-foreground/40" />;
+    if (sortOrder === "asc")
+      return <ArrowUp className="ml-1 h-3 w-3 text-primary" />;
+    return <ArrowDown className="ml-1 h-3 w-3 text-primary" />;
+  };
+
+  const handlePageSizeChange = (v: string) => {
+    setPageSize(Number(v));
+    setPage(1);
   };
 
   return (
@@ -273,9 +346,30 @@ export default function ServerList() {
                     onCheckedChange={toggleSelectAll}
                   />
                 </TableHead>
-                <TableHead>主机名</TableHead>
-                <TableHead>状态</TableHead>
-                <TableHead>厂商 / 型号</TableHead>
+                <TableHead
+                  className="cursor-pointer select-none"
+                  onClick={() => handleSort("hostname")}
+                >
+                  <span className="inline-flex items-center">
+                    主机名 <SortIcon field="hostname" />
+                  </span>
+                </TableHead>
+                <TableHead
+                  className="cursor-pointer select-none"
+                  onClick={() => handleSort("status")}
+                >
+                  <span className="inline-flex items-center">
+                    状态 <SortIcon field="status" />
+                  </span>
+                </TableHead>
+                <TableHead
+                  className="cursor-pointer select-none"
+                  onClick={() => handleSort("manufacturer")}
+                >
+                  <span className="inline-flex items-center">
+                    厂商 / 型号 <SortIcon field="manufacturer" />
+                  </span>
+                </TableHead>
                 <TableHead>位置</TableHead>
                 <TableHead>IP 地址</TableHead>
                 <TableHead className="text-right">操作</TableHead>
@@ -285,10 +379,10 @@ export default function ServerList() {
               {isLoading && (
                 <TableRow><TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">加载中…</TableCell></TableRow>
               )}
-              {!isLoading && filtered.length === 0 && (
+              {!isLoading && paged.length === 0 && (
                 <TableRow><TableCell colSpan={7} className="py-8 text-center text-sm text-muted-foreground">没有匹配的记录</TableCell></TableRow>
               )}
-              {filtered.map((s) => (
+              {paged.map((s) => (
                 <TableRow
                   key={s.id}
                   className="cursor-pointer transition-smooth hover:bg-muted/40"
@@ -337,7 +431,7 @@ export default function ServerList() {
                         <Button
                           size="icon"
                           variant="ghost"
-                          onClick={() => navigate(`/servers/${s.id}/bmc`)}
+                          onClick={() => window.open(`https://${s.mgmtIp}`, "_blank", "noopener,noreferrer")}
                           title="带外控制台"
                         >
                           <Monitor className="h-4 w-4" />
@@ -365,6 +459,82 @@ export default function ServerList() {
               ))}
             </TableBody>
           </Table>
+        </div>
+
+        {/* Pagination */}
+        <div className="flex items-center justify-between border-t border-border px-4 py-3">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <span>每页</span>
+            <Select value={String(pageSize)} onValueChange={handlePageSizeChange}>
+              <SelectTrigger className="h-8 w-[70px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {PAGE_SIZE_OPTIONS.map((n) => (
+                  <SelectItem key={n} value={String(n)}>{n}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <span>
+              条 · 共 {sorted.length} 条记录
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1">
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-8 w-8"
+              disabled={effectivePage <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+
+            {Array.from({ length: totalPages }, (_, i) => i + 1)
+              .filter((p) => {
+                // Show first, last, and pages around current
+                if (totalPages <= 7) return true;
+                if (p === 1 || p === totalPages) return true;
+                if (Math.abs(p - effectivePage) <= 1) return true;
+                return false;
+              })
+              .reduce<(number | "...")[]>((acc, p, i, arr) => {
+                if (i > 0) {
+                  const prev = arr[i - 1];
+                  if (p - prev > 1) acc.push("...");
+                }
+                acc.push(p);
+                return acc;
+              }, [])
+              .map((p, i) =>
+                p === "..." ? (
+                  <span key={`ellipsis-${i}`} className="px-1 text-xs text-muted-foreground">
+                    …
+                  </span>
+                ) : (
+                  <Button
+                    key={p}
+                    variant={p === effectivePage ? "default" : "outline"}
+                    size="icon"
+                    className="h-8 w-8 text-xs"
+                    onClick={() => setPage(p)}
+                  >
+                    {p}
+                  </Button>
+                ),
+              )}
+
+            <Button
+              variant="outline"
+              size="icon"
+              className="h-8 w-8"
+              disabled={effectivePage >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       </Card>
 
