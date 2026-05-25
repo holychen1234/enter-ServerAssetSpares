@@ -33,6 +33,16 @@ const VALID_STATUSES: ServerStatus[] = ["online", "offline", "maintenance", "ret
 const VALID_MANUFACTURERS: Manufacturer[] = [
   "Dell", "HPE", "Lenovo", "Inspur", "Supermicro", "Huawei", "XFusion", "Other",
 ];
+
+/** Display names that users might fill in from the dropdown → internal value */
+const MANUFACTURER_ALIASES: Record<string, Manufacturer> = {
+  "超聚变": "XFusion",
+};
+
+function normalizeManufacturer(raw: string): string {
+  const trimmed = raw.trim();
+  return MANUFACTURER_ALIASES[trimmed] ?? trimmed;
+}
 const VALID_BMC_PROTOCOLS: BmcProtocol[] = ["redfish", "ipmi"];
 
 // ---------- export ----------
@@ -263,7 +273,9 @@ function validateImportRow(data: Record<string, string>): string[] {
   }
 
   if (!errors.length) {
-    if (data.manufacturer && !VALID_MANUFACTURERS.includes(data.manufacturer as Manufacturer)) {
+    const mfr = data.manufacturer ? normalizeManufacturer(data.manufacturer) : "";
+    data.manufacturer = mfr;
+    if (mfr && !VALID_MANUFACTURERS.includes(mfr as Manufacturer)) {
       errors.push(`厂商 "${data.manufacturer}" 无效，可选: ${VALID_MANUFACTURERS.join(", ")}`);
     }
     if (data.status && !VALID_STATUSES.includes(data.status as ServerStatus)) {
@@ -302,7 +314,7 @@ export function importRowToPayload(
     hostname: data.hostname,
     sn: data.sn,
     assetTag: data.assetTag,
-    manufacturer: (data.manufacturer || "Other") as Manufacturer,
+    manufacturer: (normalizeManufacturer(data.manufacturer) || "Other") as Manufacturer,
     model: data.model,
     cpuModel: data.cpuModel,
     cpuCount: parseInt(data.cpuCount) || 1,
