@@ -207,6 +207,7 @@ DOCKERFILE
         rm -rf "$WEB_CTX"
         docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" stop web 2>/dev/null || true
         docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" rm -f web 2>/dev/null || true
+        docker rm -f "${COMPOSE_PROJECT}-web-1" 2>/dev/null || true
         WEB_PORT="${WEB_PORT:-8080}"
         docker run -d \
             --name "${COMPOSE_PROJECT}-web-1" \
