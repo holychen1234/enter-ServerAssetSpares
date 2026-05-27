@@ -38,7 +38,7 @@
           {"name": "sn", "in": "query", "required": false, "schema": {"type": "string"}, "description": "SN序列号精确匹配"},
           {"name": "ip", "in": "query", "required": false, "schema": {"type": "string"}, "description": "IP地址匹配（业务IP或管理IP）"},
           {"name": "model", "in": "query", "required": false, "schema": {"type": "string"}, "description": "服务器型号"},
-          {"name": "manufacturer", "in": "query", "required": false, "schema": {"type": "string"}, "description": "厂商"},
+          {"name": "manufacturer", "in": "query", "required": false, "schema": {"type": "string"}, "description": "厂商过滤，支持中英文（戴尔/Dell, 惠普/HPE, 联想/Lenovo, 浪潮/Inspur, 超微/Supermicro, 华为/Huawei, 超聚变/XFusion, 其他/Other）"},
           {"name": "status", "in": "query", "required": false, "schema": {"type": "string", "enum": ["online", "offline", "maintenance", "retired"]}, "description": "状态过滤"},
           {"name": "idc", "in": "query", "required": false, "schema": {"type": "string"}, "description": "IDC机房过滤"},
           {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "default": 20, "minimum": 1, "maximum": 100}, "description": "返回条数上限"}

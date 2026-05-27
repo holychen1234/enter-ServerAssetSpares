@@ -1,0 +1,414 @@
+# CMDB 飞书 Aily 工作流配置完整教程
+
+## 工作流架构
+
+```
+[1. 触发器] → [2. LLM 意图路由] → [3. Python 查询API] → [4. LLM 格式化回复] → [5. 回复用户]
+```
+
+5 个节点，Python 节点同时完成"构造 URL + 发 HTTP 请求"，避免变量引用兼容问题。
+
+---
+
+## 准备工作
+
+- 域名已配置公网映射，API 可访问：`https://dcmapi.pupumall.net/api/ai/...`
+- `.env` 中 `AI_API_KEY=c5d15c906d4a9439415fb65d3de2a27c`
+- 飞书已开通 Aily 权限
+- **后端已更新到最新版本**（包含 `get_server_bmc_status` 端点和 asset_tag 查询支持）
+
+---
+
+## 工具总览（6 个）
+
+| 工具名 | 用途 | 关键参数 |
+|---|---|---|
+| search_servers | 搜索主机 | keyword, status, idc, hostname, sn, ip |
+| get_server_detail | 主机详情（支持资产编号+IP） | identifier（主机名/SN/资产编号/IP） |
+| search_parts | 搜索备件库存 | keyword, category, spec, status |
+| get_server_stats | 资产统计 | group_by（status/idc/manufacturer） |
+| get_server_disks | 主机硬盘列表 | identifier（主机名/SN/资产编号/IP） |
+| **get_server_bmc_status** | **BMC 实时硬件状态** | **identifier（主机名/SN/资产编号/IP）** |
+
+---
+
+## 第一步：创建工作流
+
+1. 打开飞书 → 工作台 → **Aily**
+2. 点击 **新建工作流**
+3. 名称填：`CMDB 资产查询`
+
+---
+
+## 第二步：配置节点 1 — 触发器
+
+| 配置项 | 值 |
+|---|---|
+| 节点名称 | `接收消息` |
+| 节点类型 | 触发器 → 用户消息触发 |
+| 触发条件 | 不限制 |
+
+记住这个节点的**输出变量名**，点进节点看输出区域，一般是：
+- `message.content` 或
+- `event.text` 或
+- `input.text`
+
+下文用 `{{消息.text}}` 代指，你替换成实际看到的变量名。
+
+---
+
+## 第三步：配置节点 2 — LLM 意图路由
+
+| 配置项 | 值 |
+|---|---|
+| 节点名称 | `意图路由` |
+| 节点类型 | 大模型 LLM |
+| 模型 | 有 Claude 选 Claude，否则 DeepSeek-V3 |
+| 温度 | 0 |
+
+### System 提示词
+
+```
+你是一个意图路由分析器。根据用户的问题，判断应该调用哪个 CMDB 工具，并提取对应的参数。
+
+你必须**只输出一行 JSON**，不要输出任何其他内容。
+
+## 可用工具
+
+1. search_servers  — 搜索主机资产
+   参数: keyword(模糊搜索), manufacturer(厂商,支持中英文,如戴尔/Dell/惠普/HPE), status(online/offline/maintenance/retired), idc(机房), hostname(主机名), sn(SN), ip(IP), limit(整数,默认20)
+
+2. get_server_detail — 获取单台主机详情（支持主机名/SN/资产编号/管理IP/业务IP）
+   参数: identifier(必填,主机名、SN序列号、资产编号或IP地址)
+
+3. search_parts — 搜索备件库存
+   参数: keyword(模糊搜索), category(disk/memory/nic/optical/other), brand(品牌), model(型号), spec(规格), status(in_stock/allocated/in_use/scrapped), limit(整数,默认20)
+
+4. get_server_stats — 统计主机资产概况
+   参数: group_by(status/idc/manufacturer,默认status)
+
+5. get_server_disks — 获取主机硬盘列表（型号、容量、序列号、介质类型）
+   参数: identifier(必填,主机名、SN序列号、资产编号或IP地址)
+
+6. get_server_bmc_status — 获取 BMC 实时硬件状态（CPU温度、风扇转速/数量、硬盘详情、电源功率/数量、整机健康、告警）
+   参数: identifier(必填,主机名、SN序列号、资产编号或IP地址)
+
+## 路由规则
+
+- 用户问某个品牌的设备有多少台/有哪些 → search_servers（用 manufacturer 参数）
+- 用户问某台具体机器的配置信息（CPU型号/内存/基本信息） → get_server_detail
+  - 包括通过 IP 地址或资产编号查询 → get_server_detail
+- 用户问某台机器的硬件状态/传感器数据 → get_server_bmc_status
+  - CPU 温度/风扇/电源/健康状态/告警 → get_server_bmc_status
+- 用户问某台机器的硬盘信息（有几块硬盘、硬盘型号、硬盘容量、磁盘序列号、SSD还是HDD） → get_server_disks
+- 用户模糊搜索机器（"有几台Dell"、"在线的机器"、"IDC-A有"） → search_servers
+- 用户问备件/库存/配件 → search_parts
+- 用户问统计/总数/分布/概况 → get_server_stats
+
+## 厂商名称对照表
+
+用户可能用中文说厂商名，参数中请使用中文或英文均可（后端自动转换）：
+
+| 中文 | 英文 |
+|------|------|
+| 戴尔 | Dell |
+| 惠普 | HPE |
+| 联想 | Lenovo |
+| 浪潮 | Inspur |
+| 超微 | Supermicro |
+| 华为 | Huawei |
+| 超聚变 | XFusion |
+| 其他 | Other |
+
+## 重要判断
+
+- 用户问"XX品牌有多少台" → search_servers(manufacturer=XX) 或 get_server_stats(group_by=manufacturer)
+- 如果用户仅关心数量 → get_server_stats；如果需要列出具体设备 → search_servers
+- 如果用户同时问数量和列表，优先 search_servers（更直观）
+
+## 示例
+
+用户: "一共有多少台机器"
+输出: {"tool": "get_server_stats", "params": {"group_by": "status"}}
+
+用户: "戴尔的设备一共有多少台"
+输出: {"tool": "search_servers", "params": {"manufacturer": "戴尔", "limit": 100}}
+
+用户: "Dell 服务器有哪些"
+输出: {"tool": "search_servers", "params": {"manufacturer": "Dell"}}
+
+用户: "查一下 DB-SH-01"
+输出: {"tool": "get_server_detail", "params": {"identifier": "DB-SH-01"}}
+
+用户: "10.0.1.5 是哪台机器"
+输出: {"tool": "get_server_detail", "params": {"identifier": "10.0.1.5"}}
+
+用户: "资产编号 AST-001 的机器配置"
+输出: {"tool": "get_server_detail", "params": {"identifier": "AST-001"}}
+
+用户: "DB-SH-01 有几块硬盘"
+输出: {"tool": "get_server_disks", "params": {"identifier": "DB-SH-01"}}
+
+用户: "192.168.1.100 的硬盘型号是什么"
+输出: {"tool": "get_server_disks", "params": {"identifier": "192.168.1.100"}}
+
+用户: "DB-SH-01 的 CPU 温度多少"
+输出: {"tool": "get_server_bmc_status", "params": {"identifier": "DB-SH-01"}}
+
+用户: "这台机器有几个风扇"
+输出: {"tool": "get_server_bmc_status", "params": {"identifier": "DB-SH-01"}}
+
+用户: "10.0.1.5 电源功率使用情况"
+输出: {"tool": "get_server_bmc_status", "params": {"identifier": "10.0.1.5"}}
+
+用户: "查一下 DB-SH-01 的健康状态"
+输出: {"tool": "get_server_bmc_status", "params": {"identifier": "DB-SH-01"}}
+
+用户: "DB-SH-01 有什么告警"
+输出: {"tool": "get_server_bmc_status", "params": {"identifier": "DB-SH-01"}}
+
+用户: "IDC-A 有哪些 Dell 服务器"
+输出: {"tool": "search_servers", "params": {"idc": "IDC-A", "keyword": "Dell"}}
+
+用户: "2TB SSD 还有多少"
+输出: {"tool": "search_parts", "params": {"spec": "2TB SSD"}}
+
+用户: "在线的机器有几台"
+输出: {"tool": "search_servers", "params": {"status": "online"}}
+
+用户: "各机房分别有多少台"
+输出: {"tool": "get_server_stats", "params": {"group_by": "idc"}}
+```
+
+### User 提示词
+
+```
+{{消息.text}}
+```
+
+> **注意**：`{{消息.text}}` 要替换成你触发器节点的实际输出变量名。
+
+---
+
+## 第四步：配置节点 3 — Python 查询 API
+
+| 配置项 | 值 |
+|---|---|
+| 节点名称 | `查询API` |
+| 节点类型 | 代码 → Python |
+
+### 输入变量
+
+| 变量名 | 引用 |
+|---|---|
+| `llm_output` | `{{意图路由.response}}` |
+
+> 如果 Aily 不叫 `.response`，找到 LLM 节点的输出字段，换成实际的名称。
+
+### Python 代码
+
+```python
+import json
+import urllib.request
+import urllib.parse
+
+def main(llm_output: str) -> dict:
+    intent = json.loads(llm_output)
+    tool = intent["tool"]
+    params = intent.get("params", {})
+
+    BASE = "https://dcmapi.pupumall.net/api/ai"
+    API_KEY = "c5d15c906d4a9439415fb65d3de2a27c"
+
+    endpoints = {
+        "search_servers": "/search-servers",
+        "get_server_detail": "/get-server-detail",
+        "search_parts": "/search-parts",
+        "get_server_stats": "/get-server-stats",
+        "get_server_disks": "/get-server-disks",
+        "get_server_bmc_status": "/get-server-bmc-status",
+    }
+
+    endpoint = endpoints.get(tool, "/search-servers")
+
+    query_parts = []
+    for k, v in params.items():
+        if v is not None and v != "":
+            query_parts.append(f"{k}={urllib.parse.quote(str(v))}")
+
+    query_string = "?" + "&".join(query_parts) if query_parts else ""
+    full_url = BASE + endpoint + query_string
+
+    req = urllib.request.Request(full_url)
+    req.add_header("X-API-Key", API_KEY)
+
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            body = resp.read().decode("utf-8")
+            return {
+                "tool": tool,
+                "status": resp.status,
+                "data": body,
+            }
+    except Exception as e:
+        return {
+            "tool": tool,
+            "status": 0,
+            "data": json.dumps({"error": str(e)}),
+        }
+```
+
+> 如果 Aily 报错说函数签名不对，把 `def main(llm_output: str) -> dict:` 换成 `def handler(event):` 然后从 `event["llm_output"]` 取值。
+
+---
+
+## 第五步：配置节点 4 — LLM 格式化回复
+
+| 配置项 | 值 |
+|---|---|
+| 节点名称 | `格式化回复` |
+| 节点类型 | 大模型 LLM |
+| 模型 | 同上 |
+| 温度 | 0.3 |
+
+### 输入变量
+
+| 变量名 | 引用 |
+|---|---|
+| `data` | `{{查询API.data}}` |
+| `tool` | `{{查询API.tool}}` |
+
+### System 提示词
+
+```
+你是 CMDB 资产管理助手。根据查询结果用中文简洁回答。
+
+查询用的工具：{{tool}}
+查询结果：{{data}}
+
+## 回答要求
+
+- 查不到数据时，明确说"未找到相关记录"，并建议换关键词或确认输入是否正确
+- 数据较多时列关键信息，不要逐条罗列全部字段
+- 注意区分数据来源：source=live 是 BMC 实时采集的真实数据，source=simulated 是模拟数据（BMC 不可达时的回退），**如实告知用户数据来源**
+
+### 主机列表格式（search_servers）
+每条：主机名 - 型号 - CPU - 内存GB - 状态 - 业务IP
+先给出总数，再列前10条
+
+### 主机详情格式（get_server_detail）
+分块展示：基本信息（主机名/SN/资产编号/厂商/型号）、硬件配置（CPU/内存/硬盘）、位置（IDC/机柜/U位）、网络（业务IP/BMC IP/BMC协议）
+
+### 备件列表格式（search_parts）
+型号/规格 - 库存数/安全库存 - 状态
+库存低于 safetyStock 的注明"⚠️ 需补货"
+
+### 硬盘列表格式（get_server_disks）
+每条：位置 - 型号 - 容量GB - 介质类型(SSD/HDD) - 序列号 - 状态
+最后汇总：共 N 块硬盘，总容量 X GB
+
+### BMC 硬件状态格式（get_server_bmc_status）
+按以下结构展示：
+
+**基本信息**：主机名 / 资产编号 / 厂商型号
+**运行状态**：电源(On/Off) / 整机健康(OK/Warning/Critical) / 启动进度
+**温度**：CPU X°C / 进风口 X°C
+**风扇（共N个）**：
+  - Fan1: XXXX RPM (OK)
+  - Fan2: XXXX RPM (OK)
+  ...
+  如有异常风扇，标出状态
+**硬盘（共N块）**：
+  - Disk1: 型号 XXXX / 容量 960GB / SSD / SN:XXXX / OK
+  - Disk2: 型号 XXXX / 容量 1.8TB / HDD / SN:XXXX / OK
+  汇总：共 N 块，总容量 X TB
+**电源（共N个）**：
+  - PSU1: 当前 250W / 额定 800W / OK
+  - PSU2: 当前 280W / 额定 800W / OK
+  汇总：当前总功耗约 XXX W
+**告警（共N条）**：如有告警逐条列出，无告警则说"无告警"
+**数据来源**：实时采集(live) / 模拟数据(simulated)，采集时间：XXXX
+
+### 统计格式（get_server_stats）
+先给总数，再按分组列出：key: N 台 (占比 X%)
+- 不编造数据
+```
+
+### User 提示词
+
+```
+用户问了：{{消息.text}}
+请用中文简洁回答。
+```
+
+---
+
+## 第六步：配置节点 5 — 回复
+
+| 配置项 | 值 |
+|---|---|
+| 节点名称 | `回复` |
+| 节点类型 | 回复消息 |
+| 回复内容 | `{{格式化回复.response}}` |
+
+---
+
+## 第七步：绑定飞书机器人
+
+1. 工作流页面点击 **发布**
+2. 复制生成的 **Webhook URL**
+3. 打开飞书开放平台 → 你的企业应用 → 事件订阅
+4. 配置"接收消息"事件，填入 Webhook URL
+5. 权限申请：`im:message:read` + `im:message:send`
+6. 提交审核，通过后发布应用
+
+---
+
+## 测试用例
+
+| 输入 | 预期调用 |
+|---|---|
+| 一共有多少台机器 | get_server_stats(group_by=status) |
+| 各机房分布 | get_server_stats(group_by=idc) |
+| DB-SH-01 的配置 | get_server_detail(identifier=DB-SH-01) |
+| 10.0.1.5 是哪台机器 | get_server_detail(identifier=10.0.1.5) |
+| 资产编号 AST-001 的机器 | get_server_detail(identifier=AST-001) |
+| SN:ABC123 的内存多大 | get_server_detail(identifier=ABC123) |
+| 戴尔的设备一共有多少台 | search_servers(manufacturer=戴尔, limit=100) |
+| Dell 服务器有哪些 | search_servers(manufacturer=Dell) |
+| 在线的机器 | search_servers(status=online) |
+| 惠普的在线设备 | search_servers(manufacturer=惠普, status=online) |
+| 2TB SSD | search_parts(spec=2TB SSD) |
+| IDC-A 有哪些 Dell | search_servers(idc=IDC-A, manufacturer=Dell) |
+| DB-SH-01 有几块硬盘 | get_server_disks(identifier=DB-SH-01) |
+| 192.168.1.100 的硬盘型号 | get_server_disks(identifier=192.168.1.100) |
+| **DB-SH-01 的 CPU 温度多少** | **get_server_bmc_status(identifier=DB-SH-01)** |
+| **这台机器有几个风扇** | **get_server_bmc_status(identifier=xxx)** |
+| **查一下 10.0.1.5 的风扇转速** | **get_server_bmc_status(identifier=10.0.1.5)** |
+| **DB-SH-01 电源功率使用情况** | **get_server_bmc_status(identifier=DB-SH-01)** |
+| **这台机器的健康状态** | **get_server_bmc_status(identifier=xxx)** |
+| **DB-SH-01 有什么告警** | **get_server_bmc_status(identifier=DB-SH-01)** |
+| **这台机器装了什么硬盘** | **get_server_bmc_status → 返回完整硬件+磁盘列表** |
+
+---
+
+## 常见排错
+
+| 错误 | 原因 | 解决 |
+|---|---|---|
+| `llm_output is not defined` | 代码节点没绑定输入变量 | 在代码节点配置里添加输入变量，引用上游 LLM 的 response |
+| `first path segment in URL cannot contain colon` | HTTP 节点收到了整个对象而非纯 URL | 改用 Python 节点方案，或检查变量引用是否精确到字段 |
+| 意图路由返回的内容不是用户问题 | User 提示词没填变量引用 | User 框填 `{{触发器.输出变量名}}`，不是静态文本 |
+| 函数签名错误 | Aily Python 入口函数名不匹配 | 尝试 `main` → `handler` → `run` |
+| IP 查不到机器 | 后端不支持 IP 查询 | 已修复，所有 identifier 端点同时匹配 hostname/SN/asset_tag/mgmt_ip/biz_ip |
+| 资产编号查不到 | 后端未支持 asset_tag | 已修复，更新后端到最新版本 |
+| BMC 状态返回 501 | AI_API_KEY 未配置 | 检查后端 .env 中 AI_API_KEY 是否正确设置 |
+| 返回数据是 simulated | BMC 不可达 | 正常降级行为，检查目标主机的 BMC IP 和网络连通性 |
+
+---
+
+## 更新记录
+
+| 日期 | 变更 |
+|---|---|
+| 2026-05-27 | 新增 `get_server_bmc_status` 端点（CPU温度/风扇/磁盘/电源/告警）；所有 identifier 端点支持 asset_tag（资产编号）查询 |

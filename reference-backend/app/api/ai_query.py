@@ -35,6 +35,34 @@ def verify_api_key(
 
 # ── helpers ───────────────────────────────────────────────────
 
+# 厂商中英文映射，支持用户用中文名查询
+MANUFACTURER_ALIASES: dict[str, str] = {
+    "戴尔": "Dell",
+    "dell": "Dell",
+    "惠普": "HPE",
+    "hpe": "HPE",
+    "h3c": "HPE",
+    "联想": "Lenovo",
+    "lenovo": "Lenovo",
+    "浪潮": "Inspur",
+    "inspur": "Inspur",
+    "超微": "Supermicro",
+    "supermicro": "Supermicro",
+    "华为": "Huawei",
+    "huawei": "Huawei",
+    "超聚变": "XFusion",
+    "xfusion": "XFusion",
+    "其他": "Other",
+    "other": "Other",
+}
+
+def _normalize_manufacturer(raw: str) -> str | None:
+    """将中文或大小写不规范的厂商名转为标准英文名，无法识别返回 None。"""
+    if not raw or not raw.strip():
+        return None
+    return MANUFACTURER_ALIASES.get(raw.strip().lower()) or MANUFACTURER_ALIASES.get(raw.strip())
+
+
 def _server_brief(s) -> dict:
     """Compact server view for list results."""
     return {
@@ -81,6 +109,7 @@ def search_servers(
     hostname: str = Query(default="", description="主机名精确匹配"),
     sn: str = Query(default="", description="序列号精确匹配"),
     ip: str = Query(default="", description="IP 地址匹配（业务IP或管理IP）"),
+    manufacturer: str = Query(default="", description="厂商过滤，支持中英文（戴尔/Dell, 惠普/HPE, 联想/Lenovo, 浪潮/Inspur, 超微/Supermicro, 华为/Huawei, 超聚变/XFusion）"),
     limit: int = Query(default=20, ge=1, le=100, description="返回条数上限"),
     db: Session = Depends(get_db),
     _: None = Depends(verify_api_key),
@@ -88,6 +117,11 @@ def search_servers(
     """搜索主机资产。Aily use this when user asks about servers by name,
     SN, IP, model, manufacturer, location, or any keyword combination."""
     q = db.query(Server)
+
+    # 厂商名规范化：支持中文（戴尔→Dell）和不区分大小写
+    mfr_normalized: str | None = None
+    if manufacturer:
+        mfr_normalized = _normalize_manufacturer(manufacturer)
 
     if keyword:
         kw = f"%{keyword}%"
@@ -103,6 +137,11 @@ def search_servers(
             | Server.idc.ilike(kw)
             | Server.remark.ilike(kw)
         )
+    # 如果传入 manufacturer 参数，精确过滤。同时把 keyword 中的中文厂商名也做模糊匹配
+    # （keyword 的 ilike 已覆盖 manufacturer 字段，但仅当 keyword 非空时才生效；
+    #  此处确保即使 keyword 为空，manufacturer 参数也能独立工作。）
+    if mfr_normalized:
+        q = q.filter(Server.manufacturer == mfr_normalized)
     if status:
         q = q.filter(Server.status == status)
     if idc:
