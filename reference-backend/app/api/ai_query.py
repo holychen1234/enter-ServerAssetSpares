@@ -375,38 +375,6 @@ async def get_server_bmc_status(
     }
 
 
-@router.get("/get-server-network")
-def get_server_network(
-    identifier: str = Query(..., description="主机名、SN序列号、资产编号或IP地址"),
-    db: Session = Depends(get_db),
-    _: None = Depends(verify_api_key),
-):
-    """获取主机网络/BMC信息。仅返回网络相关字段，数据量小，适合
-    用户问「带外IP」「BMC地址」「管理IP是多少」等精确查询。"""
-    s = (
-        db.query(Server)
-        .filter(
-            (Server.hostname == identifier)
-            | (Server.sn == identifier)
-            | (Server.asset_tag == identifier)
-            | (Server.mgmt_ip == identifier)
-            | (Server.biz_ip == identifier)
-        )
-        .first()
-    )
-    if not s:
-        return {"found": False, "message": f"未找到主机: {identifier}"}
-    return {
-        "found": True,
-        "hostname": s.hostname,
-        "bizIp": s.biz_ip,
-        "mgmtIp": s.mgmt_ip,
-        "bmcProtocol": s.bmc_protocol,
-        "bmcUser": s.bmc_user,
-        "bmcPasswordSet": bool(s.bmc_password),
-    }
-
-
 # ── OpenAPI schema (no auth — Dify needs to fetch it for import) ─
 
 @router.get("/openapi.json", include_in_schema=False)

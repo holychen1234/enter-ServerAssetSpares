@@ -19,19 +19,16 @@
 
 ---
 
-## 工具总览（7 个）
+## 工具总览（6 个）
 
-| 工具名 | 用途 | 返回数据量 | 关键参数 |
-|---|---|---|---|
-| search_servers | 搜索主机列表 | 中 | keyword, manufacturer, status, idc |
-| get_server_detail | 主机完整详情 | 大 | identifier（主机名/SN/资产编号/IP） |
-| **get_server_network** | **网络/BMC 信息（精简）** | **小** | **identifier（主机名/SN/资产编号/IP）** |
-| search_parts | 搜索备件库存 | 中 | keyword, category, spec |
-| get_server_stats | 资产统计 | 小 | group_by（status/idc/manufacturer） |
-| get_server_disks | 主机硬盘列表 | 中 | identifier |
-| get_server_bmc_status | BMC 实时硬件状态 | 大 | identifier |
-
-> **关键**: `get_server_network` 只返回 6 个字段（hostname/bizIp/mgmtIp/bmcProtocol/bmcUser/bmcPasswordSet），专门用于精确网络查询
+| 工具名 | 用途 | 关键参数 |
+|---|---|---|
+| search_servers | 搜索主机 | keyword, manufacturer, status, idc, hostname, sn, ip |
+| get_server_detail | 主机详情（支持资产编号+IP） | identifier（主机名/SN/资产编号/IP） |
+| search_parts | 搜索备件库存 | keyword, category, spec, status |
+| get_server_stats | 资产统计 | group_by（status/idc/manufacturer） |
+| get_server_disks | 主机硬盘列表 | identifier（主机名/SN/资产编号/IP） |
+| **get_server_bmc_status** | **BMC 实时硬件状态** | **identifier（主机名/SN/资产编号/IP）** |
 
 ---
 
@@ -95,17 +92,12 @@
 
 6. get_server_bmc_status — 获取 BMC 实时硬件状态（CPU温度、风扇转速/数量、硬盘详情、电源功率/数量、整机健康、告警）
    参数: identifier(必填,主机名、SN序列号、资产编号或IP地址)
-   **注意：此工具返回数据量大（含全部硬件模块），仅在用户明确问硬件传感器数据时使用**
-
-7. get_server_network — 获取主机网络/BMC 信息（仅有 6 个网络字段，数据量极小）
-   参数: identifier(必填,主机名、SN序列号、资产编号或IP地址)
-   **这是查询带外IP/BMC地址的首选工具，返回数据精准不冗余**
 
 ## 路由规则
 
 - 用户问某个品牌的设备有多少台/有哪些 → search_servers（用 manufacturer 参数）
-- 用户问 BMC IP / 带外IP / 管理IP / 带外管理地址 / 带外信息 → **get_server_network**（首选！只返回6个网络字段）
-- 用户通过业务IP查 BMC IP → **get_server_network**（用业务IP作为 identifier）
+- 用户问 BMC IP / 带外IP / 管理IP → get_server_detail（identifier 可以是主机名/业务IP/SN）
+- 用户通过业务IP查 BMC IP → get_server_detail（用业务IP作为 identifier）
 - 用户问某台具体机器的配置信息（CPU型号/内存/基本信息/网络） → get_server_detail
   - 包括通过 IP 地址或资产编号查询 → get_server_detail
 - 用户问某台机器的硬件状态/传感器数据 → get_server_bmc_status
@@ -135,7 +127,7 @@
 - 用户问"XX品牌有多少台" → search_servers(manufacturer=XX) 或 get_server_stats(group_by=manufacturer)
 - 如果用户仅关心数量 → get_server_stats；如果需要列出具体设备 → search_servers
 - 用户给了一个 IP 地址（如 10.0.1.x 或 192.168.x.x）→ 用 identifier 参数
-- 用户问 "BMC IP / 带外管理IP / 管理地址 / 带外信息" → **get_server_network**（数据量最小，最精准）
+- 用户问 "BMC IP / 带外管理IP / 管理地址" → get_server_detail（即使给的输入是业务IP）
 - 用户问硬件实时数据 → get_server_bmc_status
 - 如果用户同时问数量和列表，优先 search_servers（更直观）
 
@@ -157,13 +149,13 @@
 输出: {"tool": "get_server_detail", "params": {"identifier": "10.0.1.5"}}
 
 用户: "10.0.1.5 的 BMC IP 是多少"
-输出: {"tool": "get_server_network", "params": {"identifier": "10.0.1.5"}}
+输出: {"tool": "get_server_detail", "params": {"identifier": "10.0.1.5"}}
 
 用户: "192.168.23.108 的带外信息"
-输出: {"tool": "get_server_network", "params": {"identifier": "192.168.23.108"}}
+输出: {"tool": "get_server_detail", "params": {"identifier": "192.168.23.108"}}
 
 用户: "查一下 DB-SH-01 的带外管理IP"
-输出: {"tool": "get_server_network", "params": {"identifier": "DB-SH-01"}}
+输出: {"tool": "get_server_detail", "params": {"identifier": "DB-SH-01"}}
 
 用户: "资产编号 AST-001 的机器配置"
 输出: {"tool": "get_server_detail", "params": {"identifier": "AST-001"}}
@@ -255,7 +247,6 @@ def main(llm_output: str) -> dict:
         "get_server_stats": "/get-server-stats",
         "get_server_disks": "/get-server-disks",
         "get_server_bmc_status": "/get-server-bmc-status",
-        "get_server_network": "/get-server-network",
     }
 
     endpoint = endpoints.get(tool, "/search-servers")
@@ -315,43 +306,40 @@ def main(llm_output: str) -> dict:
 查询用的工具：{{tool}}
 查询结果：{{data}}
 
-## 核心原则（最高优先级）
+## 核心原则（最高优先级，必须严格遵守）
 
 **只回答用户问了的信息，用户没问到的不要主动列出来。**
-- 用户问"电源状态" → 只回答电源，不列出 CPU/风扇/磁盘/告警
-- 用户问"CPU 温度" → 只回答温度，不列出其他硬件
-- 用户问"BMC IP 是多少" → 直接给出 BMC IP，不要列其他配置
+- 用户问"电源状态" → 只答电源，不要列 CPU/风扇/磁盘/告警
+- 用户问"CPU 温度" → 只答温度，不要列其他
+- 用户问"BMC IP 是多少 / 带外信息 / 带外管理IP" → **只回答 BMC IP 一行**，如：`BMC 带外管理IP: 10.0.0.55`。不要列主机名、SN、CPU、内存、业务IP 等其他任何信息
 - 用户问"硬盘信息" → 只列硬盘，不列电源和风扇
-- 用户问"健康状态" → 只回答健康状态和告警（如有）
+- 用户问"健康状态" → 只答健康状态和告警
 
 ## 回答要求
 
-- 查不到数据时，明确说"未找到相关记录"，并建议换关键词或确认输入是否正确
-- 精确匹配单台设备（found=true）时，可以展示更多细节；列表查询时只给关键字段
-- 注意区分数据来源：source=live 是 BMC 实时采集，source=simulated 是模拟数据（BMC 不可达），**如实告知**
-
-### 网络/BMC 信息格式（get_server_network）
-这是精简端点，数据量小，直接返回关键信息即可：
-```
-主机名: XXX
-业务IP: X.X.X.X
-BMC 带外管理IP: X.X.X.X
-BMC 协议: Redfish / IPMI
-BMC 用户: admin
-BMC 密码: 已设置 / 未设置
-```
-如果用户只问了"带外IP"或"BMC IP"，**只回答 BMC IP 一行即可**，不用列出全部字段。
+- 查不到数据时，明确说"未找到相关记录"
+- 精确匹配单台设备（found=true）时保持简洁；列表查询时只给关键字段
+- 注意区分数据来源：source=live 是 BMC 实时采集，source=simulated 是模拟数据，**如实告知**
+- **每次回答前先想：用户到底问了什么？没问的一律不答**
 
 ### 主机列表格式（search_servers）
 每条：主机名 - 型号 - CPU - 内存GB - 状态 - 业务IP - BMC IP
 先给总数，再列前10条
 
 ### 主机详情格式（get_server_detail）
-分块展示，按用户实际问题侧重：
-- 问 IP / 网络 → 重点：业务IP / BMC IP / BMC协议 / BMC用户
-- 问配置 → 重点：厂商/型号/CPU/内存/硬盘
-- 问位置 → 重点：IDC/机柜/U位
-- 没特别指向时，完整展示
+**这是最关键的格式规则，必须严格执行：**
+
+根据用户提问的具体内容，**只展示相关部分**：
+
+- 问 "BMC IP / 带外IP / 带外管理IP / 带外信息 / 管理地址"：
+  **只输出 BMC IP 一行**，格式：`BMC 带外管理IP: X.X.X.X`
+  最多加一行：`协议: Redfish, 用户: admin`
+  **绝对不要**列出主机名、SN、CPU、内存、硬盘、位置、业务IP、标签、备注等其他任何信息
+
+- 问 "IP / 网络信息"（非BMC特定）→ 业务IP / BMC IP / BMC协议 / BMC用户
+- 问 "配置" → 厂商/型号/CPU/内存/硬盘
+- 问 "位置" → IDC/机柜/U位
+- 问 "这台机器是什么 / 基本信息" → 主机名/SN/厂商/型号
 
 ### 备件列表格式（search_parts）
 型号/规格 - 库存数/安全库存 - 状态
@@ -418,9 +406,9 @@ BMC 密码: 已设置 / 未设置
 | 各机房分布 | get_server_stats(group_by=idc) |
 | DB-SH-01 的配置 | get_server_detail(identifier=DB-SH-01) |
 | 10.0.1.5 是哪台机器 | get_server_detail(identifier=10.0.1.5) |
-| **10.0.1.5 的 BMC IP 是多少** | **get_server_network(identifier=10.0.1.5)** |
-| **192.168.23.108 的带外信息** | **get_server_network(identifier=192.168.23.108)** |
-| **DB-SH-01 的带外管理IP** | **get_server_network(identifier=DB-SH-01)** |
+| **10.0.1.5 的 BMC IP 是多少** | **get_server_detail(identifier=10.0.1.5)** |
+| **192.168.23.108 的带外信息** | **get_server_detail(identifier=192.168.23.108)** |
+| **DB-SH-01 的带外管理IP** | **get_server_detail(identifier=DB-SH-01)** |
 | 资产编号 AST-001 的机器 | get_server_detail(identifier=AST-001) |
 | SN:ABC123 的内存多大 | get_server_detail(identifier=ABC123) |
 | 戴尔的设备一共有多少台 | search_servers(manufacturer=戴尔, limit=100) |
