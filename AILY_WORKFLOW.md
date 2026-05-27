@@ -96,7 +96,9 @@
 ## 路由规则
 
 - 用户问某个品牌的设备有多少台/有哪些 → search_servers（用 manufacturer 参数）
-- 用户问某台具体机器的配置信息（CPU型号/内存/基本信息） → get_server_detail
+- 用户问 BMC IP / 带外IP / 管理IP → get_server_detail（identifier 可以是主机名/业务IP/SN）
+- 用户通过业务IP查 BMC IP → get_server_detail（用业务IP作为 identifier）
+- 用户问某台具体机器的配置信息（CPU型号/内存/基本信息/网络） → get_server_detail
   - 包括通过 IP 地址或资产编号查询 → get_server_detail
 - 用户问某台机器的硬件状态/传感器数据 → get_server_bmc_status
   - CPU 温度/风扇/电源/健康状态/告警 → get_server_bmc_status
@@ -124,6 +126,9 @@
 
 - 用户问"XX品牌有多少台" → search_servers(manufacturer=XX) 或 get_server_stats(group_by=manufacturer)
 - 如果用户仅关心数量 → get_server_stats；如果需要列出具体设备 → search_servers
+- 用户给了一个 IP 地址（如 10.0.1.x 或 192.168.x.x）→ 一律用 identifier 参数，选 get_server_detail 或 get_server_bmc_status
+- 用户问 "BMC IP / 带外管理IP / 管理地址" → get_server_detail（即使给的输入是业务IP）
+- 用户问硬件实时数据 → get_server_bmc_status
 - 如果用户同时问数量和列表，优先 search_servers（更直观）
 
 ## 示例
@@ -143,6 +148,12 @@
 用户: "10.0.1.5 是哪台机器"
 输出: {"tool": "get_server_detail", "params": {"identifier": "10.0.1.5"}}
 
+用户: "10.0.1.5 的 BMC IP 是多少"
+输出: {"tool": "get_server_detail", "params": {"identifier": "10.0.1.5"}}
+
+用户: "查一下 DB-SH-01 的带外管理IP"
+输出: {"tool": "get_server_detail", "params": {"identifier": "DB-SH-01"}}
+
 用户: "资产编号 AST-001 的机器配置"
 输出: {"tool": "get_server_detail", "params": {"identifier": "AST-001"}}
 
@@ -161,10 +172,16 @@
 用户: "10.0.1.5 电源功率使用情况"
 输出: {"tool": "get_server_bmc_status", "params": {"identifier": "10.0.1.5"}}
 
+用户: "DB-SH-01 电源状态怎么样"
+输出: {"tool": "get_server_bmc_status", "params": {"identifier": "DB-SH-01"}}
+
 用户: "查一下 DB-SH-01 的健康状态"
 输出: {"tool": "get_server_bmc_status", "params": {"identifier": "DB-SH-01"}}
 
 用户: "DB-SH-01 有什么告警"
+输出: {"tool": "get_server_bmc_status", "params": {"identifier": "DB-SH-01"}}
+
+用户: "DB-SH-01 开机了没"
 输出: {"tool": "get_server_bmc_status", "params": {"identifier": "DB-SH-01"}}
 
 用户: "IDC-A 有哪些 Dell 服务器"
@@ -286,18 +303,33 @@ def main(llm_output: str) -> dict:
 查询用的工具：{{tool}}
 查询结果：{{data}}
 
+## 核心原则（最高优先级）
+
+**只回答用户问了的信息，用户没问到的不要主动列出来。**
+- 用户问"电源状态" → 只回答电源，不列出 CPU/风扇/磁盘/告警
+- 用户问"CPU 温度" → 只回答温度，不列出其他硬件
+- 用户问"BMC IP 是多少" → 直接给出 BMC IP，不要列其他配置
+- 用户问"硬盘信息" → 只列硬盘，不列电源和风扇
+- 用户问"健康状态" → 只回答健康状态和告警（如有）
+
 ## 回答要求
 
 - 查不到数据时，明确说"未找到相关记录"，并建议换关键词或确认输入是否正确
-- 数据较多时列关键信息，不要逐条罗列全部字段
-- 注意区分数据来源：source=live 是 BMC 实时采集的真实数据，source=simulated 是模拟数据（BMC 不可达时的回退），**如实告知用户数据来源**
+- 精确匹配单台设备（found=true）时，可以展示更多细节；列表查询时只给关键字段
+- 注意区分数据来源：source=live 是 BMC 实时采集，source=simulated 是模拟数据（BMC 不可达），**如实告知**
 
 ### 主机列表格式（search_servers）
-每条：主机名 - 型号 - CPU - 内存GB - 状态 - 业务IP
-先给出总数，再列前10条
+每条：主机名 - 型号 - CPU - 内存GB - 状态 - 业务IP - BMC IP
+先给总数，再列前10条
+用户问"有哪些 Dell 服务器"时列出全部匹配项
+用户问"IP 对应的机器"时给出完整的主机名/BMC IP/业务IP
 
 ### 主机详情格式（get_server_detail）
-分块展示：基本信息（主机名/SN/资产编号/厂商/型号）、硬件配置（CPU/内存/硬盘）、位置（IDC/机柜/U位）、网络（业务IP/BMC IP/BMC协议）
+分块展示，按用户实际问题侧重：
+- 问 IP / 网络 → 重点：业务IP / BMC IP / BMC协议 / BMC用户
+- 问配置 → 重点：厂商/型号/CPU/内存/硬盘
+- 问位置 → 重点：IDC/机柜/U位
+- 没特别指向时，完整展示
 
 ### 备件列表格式（search_parts）
 型号/规格 - 库存数/安全库存 - 状态
@@ -308,26 +340,18 @@ def main(llm_output: str) -> dict:
 最后汇总：共 N 块硬盘，总容量 X GB
 
 ### BMC 硬件状态格式（get_server_bmc_status）
-按以下结构展示：
 
-**基本信息**：主机名 / 资产编号 / 厂商型号
-**运行状态**：电源(On/Off) / 整机健康(OK/Warning/Critical) / 启动进度
-**温度**：CPU X°C / 进风口 X°C
-**风扇（共N个）**：
-  - Fan1: XXXX RPM (OK)
-  - Fan2: XXXX RPM (OK)
-  ...
-  如有异常风扇，标出状态
-**硬盘（共N块）**：
-  - Disk1: 型号 XXXX / 容量 960GB / SSD / SN:XXXX / OK
-  - Disk2: 型号 XXXX / 容量 1.8TB / HDD / SN:XXXX / OK
-  汇总：共 N 块，总容量 X TB
-**电源（共N个）**：
-  - PSU1: 当前 250W / 额定 800W / OK
-  - PSU2: 当前 280W / 额定 800W / OK
-  汇总：当前总功耗约 XXX W
-**告警（共N条）**：如有告警逐条列出，无告警则说"无告警"
-**数据来源**：实时采集(live) / 模拟数据(simulated)，采集时间：XXXX
+严格按照用户提问的内容选择性展示，**只展示用户问到的部分**：
+
+- 问"电源" → **电源（共N个）**：PSU1: 当前250W/额定800W (OK), PSU2: 当前280W/额定800W (OK)，总功耗约 XXX W
+- 问"CPU温度/温度" → **温度**：CPU X°C / 进风口 X°C
+- 问"风扇" → **风扇（共N个）**：Fan1: XXXX RPM (OK), ... 有异常的标出
+- 问"硬盘/磁盘/装了哪些盘" → **硬盘（共N块）**：型号/容量/介质/SN/状态，汇总总容量
+- 问"健康状态" → **整机健康**：OK/Warning/Critical，如有告警逐条列出
+- 问"告警" → 列出所有告警的时间/级别/内容，无告警则说"当前无告警"
+- 问"启动状态/开机没" → **电源状态**：On/Off，**启动进度**：XXXX
+- 问"整体运行情况/硬件概览/状态怎么样" → 展示所有模块（先给摘要，再分模块）
+- 每条信息末尾注明数据来源（BMC实时/模拟数据）
 
 ### 统计格式（get_server_stats）
 先给总数，再按分组列出：key: N 台 (占比 X%)
@@ -372,6 +396,8 @@ def main(llm_output: str) -> dict:
 | 各机房分布 | get_server_stats(group_by=idc) |
 | DB-SH-01 的配置 | get_server_detail(identifier=DB-SH-01) |
 | 10.0.1.5 是哪台机器 | get_server_detail(identifier=10.0.1.5) |
+| **10.0.1.5 的 BMC IP 是多少** | **get_server_detail(identifier=10.0.1.5)** |
+| **DB-SH-01 的带外管理IP** | **get_server_detail(identifier=DB-SH-01)** |
 | 资产编号 AST-001 的机器 | get_server_detail(identifier=AST-001) |
 | SN:ABC123 的内存多大 | get_server_detail(identifier=ABC123) |
 | 戴尔的设备一共有多少台 | search_servers(manufacturer=戴尔, limit=100) |
@@ -385,10 +411,10 @@ def main(llm_output: str) -> dict:
 | **DB-SH-01 的 CPU 温度多少** | **get_server_bmc_status(identifier=DB-SH-01)** |
 | **这台机器有几个风扇** | **get_server_bmc_status(identifier=xxx)** |
 | **查一下 10.0.1.5 的风扇转速** | **get_server_bmc_status(identifier=10.0.1.5)** |
-| **DB-SH-01 电源功率使用情况** | **get_server_bmc_status(identifier=DB-SH-01)** |
+| **DB-SH-01 电源状态怎么样** | **get_server_bmc_status(identifier=DB-SH-01)** |
+| **DB-SH-01 开机了没** | **get_server_bmc_status(identifier=DB-SH-01)** |
 | **这台机器的健康状态** | **get_server_bmc_status(identifier=xxx)** |
 | **DB-SH-01 有什么告警** | **get_server_bmc_status(identifier=DB-SH-01)** |
-| **这台机器装了什么硬盘** | **get_server_bmc_status → 返回完整硬件+磁盘列表** |
 
 ---
 
