@@ -354,6 +354,38 @@
           }
         }
       }
+    },
+    "/ai/get-server-network": {
+      "get": {
+        "operationId": "get_server_network",
+        "summary": "获取主机网络/BMC 信息（精简）",
+        "description": "获取某台主机的网络和 BMC 带外管理信息，仅返回 BMC IP、业务IP、BMC协议、BMC用户等网络相关字段，数据量小。适用场景：用户问「192.168.23.108 的带外IP」「DB-SH-01 的 BMC 地址」「这台机器的管理IP是多少」等精确网络查询。",
+        "parameters": [
+          {"name": "identifier", "in": "query", "required": true, "schema": {"type": "string"}, "description": "主机名、SN序列号、资产编号或IP地址"}
+        ],
+        "responses": {
+          "200": {
+            "description": "网络/BMC 信息",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "found": {"type": "boolean"},
+                    "message": {"type": "string"},
+                    "hostname": {"type": "string"},
+                    "bizIp": {"type": "string", "description": "业务IP"},
+                    "mgmtIp": {"type": "string", "description": "BMC 带外管理IP"},
+                    "bmcProtocol": {"type": "string", "description": "BMC 协议: redfish 或 ipmi"},
+                    "bmcUser": {"type": "string", "description": "BMC 用户名"},
+                    "bmcPasswordSet": {"type": "boolean", "description": "BMC 密码是否已设置"}
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   }
 }
