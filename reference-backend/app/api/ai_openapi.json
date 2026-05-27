@@ -92,9 +92,9 @@
       "get": {
         "operationId": "get_server_detail",
         "summary": "获取主机完整详情",
-        "description": "根据主机名或SN序列号获取单台主机的全部资产信息。适用场景：用户问「DB-SH-01 的 CPU 型号是什么」「SN:ABC123 的内存多大」等。",
+        "description": "根据主机名、SN序列号、资产编号或IP地址获取单台主机的全部资产信息。适用场景：用户问「DB-SH-01 的 CPU 型号是什么」「SN:ABC123 的内存多大」「10.0.1.5 是哪台机器」「资产编号 AST-001 的机器配置」等。",
         "parameters": [
-          {"name": "identifier", "in": "query", "required": true, "schema": {"type": "string"}, "description": "主机名或SN序列号"}
+          {"name": "identifier", "in": "query", "required": true, "schema": {"type": "string"}, "description": "主机名、SN序列号、资产编号或IP地址（管理IP或业务IP）"}
         ],
         "responses": {
           "200": {
@@ -205,6 +205,145 @@
                         "properties": {
                           "key": {"type": "string"},
                           "count": {"type": "integer"}
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ai/get-server-disks": {
+      "get": {
+        "operationId": "get_server_disks",
+        "summary": "获取主机硬盘列表",
+        "description": "获取某台主机的所有硬盘详细信息，包括型号、序列号、容量、介质类型、健康状态。数据来源于 BMC Redfish 实时采集。适用场景：用户问「DB-SH-01 有几块硬盘」「192.168.1.5 的硬盘型号是什么」「查一下这台机器的磁盘配置」等。",
+        "parameters": [
+          {"name": "identifier", "in": "query", "required": true, "schema": {"type": "string"}, "description": "主机名、SN序列号、资产编号或IP地址"}
+        ],
+        "responses": {
+          "200": {
+            "description": "硬盘列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "found": {"type": "boolean"},
+                    "hostname": {"type": "string"},
+                    "sn": {"type": "string"},
+                    "diskCountDb": {"type": "integer"},
+                    "source": {"type": "string"},
+                    "diskCountBmc": {"type": "integer"},
+                    "drives": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {"type": "string"},
+                          "model": {"type": "string"},
+                          "sn": {"type": "string"},
+                          "capacityGB": {"type": "integer"},
+                          "mediaType": {"type": "string"},
+                          "status": {"type": "string"}
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ai/get-server-bmc-status": {
+      "get": {
+        "operationId": "get_server_bmc_status",
+        "summary": "获取主机 BMC 实时硬件状态",
+        "description": "获取某台主机的 BMC 实时硬件状态信息，包括电源状态、整机健康、CPU温度、进风口温度、风扇列表（名称/转速/状态/数量）、磁盘列表（名称/型号/序列号/容量/介质类型/状态/数量）、电源模块列表（名称/当前功率/额定功率/状态/数量）、启动进度、告警列表等。数据来源于 BMC Redfish/IPMI 实时采集，非在线主机回退为模拟数据。适用场景：用户问「DB-SH-01 的 CPU 温度是多少」「这台机器有几个风扇」「查一下 10.0.1.5 的磁盘信息」「电源功率使用情况」等。",
+        "parameters": [
+          {"name": "identifier", "in": "query", "required": true, "schema": {"type": "string"}, "description": "主机名、SN序列号、资产编号或IP地址"}
+        ],
+        "responses": {
+          "200": {
+            "description": "BMC 硬件状态",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "found": {"type": "boolean"},
+                    "message": {"type": "string"},
+                    "hostname": {"type": "string"},
+                    "sn": {"type": "string"},
+                    "assetTag": {"type": "string"},
+                    "manufacturer": {"type": "string"},
+                    "model": {"type": "string"},
+                    "status": {"type": "string"},
+                    "mgmtIp": {"type": "string"},
+                    "bizIp": {"type": "string"},
+                    "bmcProtocol": {"type": "string"},
+                    "source": {"type": "string", "description": "数据来源: live 或 simulated"},
+                    "collectedAt": {"type": "string", "description": "最近一次实时采集时间 ISO8601"},
+                    "power": {"type": "string", "enum": ["On", "Off"]},
+                    "health": {"type": "string", "enum": ["OK", "Warning", "Critical"]},
+                    "bootProgress": {"type": "string"},
+                    "cpuTempC": {"type": "number", "description": "CPU 温度（摄氏度）"},
+                    "inletTempC": {"type": "number", "description": "进风口温度（摄氏度）"},
+                    "fanCount": {"type": "integer"},
+                    "fans": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {"type": "string"},
+                          "rpm": {"type": "integer"},
+                          "status": {"type": "string"}
+                        }
+                      }
+                    },
+                    "diskCount": {"type": "integer"},
+                    "disks": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {"type": "string"},
+                          "model": {"type": "string"},
+                          "sn": {"type": "string"},
+                          "capacityGB": {"type": "integer"},
+                          "mediaType": {"type": "string"},
+                          "status": {"type": "string"}
+                        }
+                      }
+                    },
+                    "psuCount": {"type": "integer"},
+                    "psus": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {"type": "string"},
+                          "watts": {"type": "integer", "description": "当前输出功率（瓦）"},
+                          "capacityW": {"type": "integer", "description": "额定功率（瓦）"},
+                          "status": {"type": "string"}
+                        }
+                      }
+                    },
+                    "alertCount": {"type": "integer"},
+                    "alerts": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {"type": "string"},
+                          "time": {"type": "string"},
+                          "level": {"type": "string", "enum": ["OK", "Warning", "Critical"]},
+                          "message": {"type": "string"}
                         }
                       }
                     }

@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.api.serializers import part_to_dict, server_to_dict
 from app.db.base import get_db
 from app.db.models import Part, Server
+from app.services import bmc as bmc_svc
 from app.settings import settings
 
 router = APIRouter(prefix="/ai", tags=["ai"])
@@ -122,15 +123,22 @@ def search_servers(
 
 @router.get("/get-server-detail")
 def get_server_detail(
-    identifier: str = Query(..., description="主机名或SN序列号"),
+    identifier: str = Query(..., description="主机名、SN序列号、资产编号或IP地址"),
     db: Session = Depends(get_db),
     _: None = Depends(verify_api_key),
 ):
     """获取单台主机完整信息。Aily use this when user asks for detailed
-    info about a specific server, e.g. CPU model, memory size, disk count."""
+    info about a specific server, e.g. CPU model, memory size, disk count.
+    identifier can be hostname, SN, asset tag, or IP address."""
     s = (
         db.query(Server)
-        .filter((Server.hostname == identifier) | (Server.sn == identifier))
+        .filter(
+            (Server.hostname == identifier)
+            | (Server.sn == identifier)
+            | (Server.asset_tag == identifier)
+            | (Server.mgmt_ip == identifier)
+            | (Server.biz_ip == identifier)
+        )
         .first()
     )
     if not s:
@@ -204,6 +212,127 @@ def get_server_stats(
         "groupBy": group_by,
         "total": sum(c for _, c in rows),
         "items": [{"key": k, "count": c} for k, c in rows],
+    }
+
+
+@router.get("/get-server-disks")
+async def get_server_disks(
+    identifier: str = Query(..., description="主机名、SN序列号、资产编号或IP地址"),
+    db: Session = Depends(get_db),
+    _: None = Depends(verify_api_key),
+):
+    """获取某台主机的硬盘列表（含型号、SN、容量）。
+    数据来源于 BMC Redfish 实时采集，非离线/retired 主机回退为模拟数据。
+    identifier can be hostname, SN, asset tag, or IP address."""
+    s = (
+        db.query(Server)
+        .filter(
+            (Server.hostname == identifier)
+            | (Server.sn == identifier)
+            | (Server.asset_tag == identifier)
+            | (Server.mgmt_ip == identifier)
+            | (Server.biz_ip == identifier)
+        )
+        .first()
+    )
+    if not s:
+        return {"found": False, "message": f"未找到主机: {identifier}"}
+
+    status = await bmc_svc.get_status(s)
+    drives = status.get("drives") or []
+
+    return {
+        "found": True,
+        "hostname": s.hostname,
+        "sn": s.sn,
+        "diskCountDb": s.disk_count,
+        "source": status.get("source", "unknown"),
+        "diskCountBmc": len(drives),
+        "drives": drives,
+    }
+
+
+@router.get("/get-server-bmc-status")
+async def get_server_bmc_status(
+    identifier: str = Query(..., description="主机名、SN序列号、资产编号或IP地址"),
+    db: Session = Depends(get_db),
+    _: None = Depends(verify_api_key),
+):
+    """获取主机 BMC 实时状态。包括 CPU 温度、风扇状态/转速/数量、磁盘型号/
+    序列号/容量/状态、电源功率/数量/状态、整机健康状态等。
+    数据来源于 BMC Redfish/IPMI 实时采集，非在线主机回退为模拟数据。"""
+    s = (
+        db.query(Server)
+        .filter(
+            (Server.hostname == identifier)
+            | (Server.sn == identifier)
+            | (Server.asset_tag == identifier)
+            | (Server.mgmt_ip == identifier)
+            | (Server.biz_ip == identifier)
+        )
+        .first()
+    )
+    if not s:
+        return {"found": False, "message": f"未找到主机: {identifier}"}
+
+    status = await bmc_svc.get_status(s)
+
+    return {
+        "found": True,
+        "hostname": s.hostname,
+        "sn": s.sn,
+        "assetTag": s.asset_tag,
+        "manufacturer": s.manufacturer,
+        "model": s.model,
+        "status": s.status,
+        "mgmtIp": s.mgmt_ip,
+        "bizIp": s.biz_ip,
+        "bmcProtocol": s.bmc_protocol,
+        # ── BMC live data ──
+        "source": status.get("source", "unknown"),
+        "collectedAt": status.get("collectedAt"),
+        "power": status.get("power"),
+        "health": status.get("health"),
+        "bootProgress": status.get("bootProgress"),
+        "cpuTempC": status.get("cpuTempC"),
+        "inletTempC": status.get("inletTempC"),
+        # fans
+        "fanCount": len(status.get("fans") or []),
+        "fans": [
+            {
+                "name": f["name"],
+                "rpm": f["rpm"],
+                "status": f["status"],
+            }
+            for f in (status.get("fans") or [])
+        ],
+        # disks
+        "diskCount": len(status.get("drives") or []),
+        "disks": [
+            {
+                "name": d.get("name"),
+                "model": d.get("model"),
+                "sn": d.get("sn"),
+                "capacityGB": d.get("capacityGB"),
+                "mediaType": d.get("mediaType"),
+                "status": d.get("status"),
+            }
+            for d in (status.get("drives") or [])
+        ],
+        # power supplies
+        "psuCount": len(status.get("psus") or []),
+        "psus": [
+            {
+                "name": p["name"],
+                "watts": p["watts"],
+                "capacityW": p["capacityW"],
+                "status": p["status"],
+            }
+            for p in (status.get("psus") or [])
+        ],
+        # alerts
+        "alertCount": len(status.get("alerts") or []),
+        "alerts": status.get("alerts") or [],
     }
 
 
