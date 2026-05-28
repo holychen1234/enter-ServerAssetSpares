@@ -87,7 +87,7 @@ class Part(Base):
     __table_args__ = (CheckConstraint("stock >= 0"),)
     id = Column(CHAR(36), primary_key=True)
     category = Column(
-        Enum("disk", "memory", "nic", "optical", "other", name="part_category"),
+        Enum("disk", "memory", "nic", "optical", "monitor", "other", name="part_category"),
         nullable=False,
     )
     brand = Column(String(64), nullable=False)
@@ -129,6 +129,9 @@ class PartItem(Base):
     installed_server_id = Column(
         CHAR(36), ForeignKey("servers.id", ondelete="SET NULL"), nullable=True
     )
+    installed_workstation_id = Column(
+        CHAR(36), ForeignKey("workstations.id", ondelete="SET NULL"), nullable=True
+    )
     remark = Column(Text, nullable=True)
     created_at = Column(DateTime, default=_utc_now, nullable=False)
 
@@ -149,6 +152,9 @@ class StockMovement(Base):
     operator = Column(String(64), nullable=False)
     related_server_id = Column(
         CHAR(36), ForeignKey("servers.id", ondelete="SET NULL"), nullable=True
+    )
+    related_workstation_id = Column(
+        CHAR(36), ForeignKey("workstations.id", ondelete="SET NULL"), nullable=True
     )
     reason = Column(String(255), nullable=False)
     created_at = Column(DateTime, default=_utc_now, nullable=False)

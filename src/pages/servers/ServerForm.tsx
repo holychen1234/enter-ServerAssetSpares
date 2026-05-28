@@ -153,12 +153,12 @@ export function ServerForm({ open, initial, onClose, onSubmit }: Props) {
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>{initial ? "编辑主机" : "新增主机"}</DialogTitle>
+          <DialogTitle>{initial ? "编辑服务器" : "新增服务器"}</DialogTitle>
           <DialogDescription>填写服务器基本信息、机房位置与 BMC 接入参数。</DialogDescription>
         </DialogHeader>
 
         <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <Field label="主机名" error={form.formState.errors.hostname?.message}>
+          <Field label="服务器名" error={form.formState.errors.hostname?.message}>
             <Input {...form.register("hostname")} placeholder="bj-prod-app-01" />
           </Field>
           <Field label="序列号 SN" error={form.formState.errors.sn?.message}>

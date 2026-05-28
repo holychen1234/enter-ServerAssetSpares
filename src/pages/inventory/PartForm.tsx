@@ -24,7 +24,7 @@ import type { Part, PartCategory } from "@/types/cmdb";
 import { useEffect } from "react";
 
 const schema = z.object({
-  category: z.enum(["disk", "memory", "nic", "optical", "other"]),
+  category: z.enum(["disk", "memory", "nic", "optical", "monitor", "other"]),
   brand: z.string().min(1, "必填"),
   model: z.string().min(1, "必填"),
   spec: z.string().min(1, "必填"),
@@ -61,6 +61,7 @@ const CATEGORY_LABEL: Record<PartCategory, string> = {
   memory: "内存",
   nic: "网卡",
   optical: "光模块",
+  monitor: "显示器",
   other: "其他",
 };
 
@@ -69,6 +70,7 @@ const SPEC_PLACEHOLDER: Record<PartCategory, string> = {
   memory: "例如 64GB DDR4-3200 RDIMM，填写内存属性(DDR4/DDR5)、容量、频率等",
   nic: "例如 ConnectX-5 双口 100GbE，填写端口数、速率、接口类型",
   optical: "例如 10G SFP+ SR 850nm 300m，填写速率、封装、波长、距离",
+  monitor: "例如 27寸 4K IPS，填写尺寸、分辨率、接口等",
   other: "填写规格说明",
 };
 

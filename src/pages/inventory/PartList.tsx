@@ -7,6 +7,7 @@ import {
   deletePart,
   listParts,
   listServers,
+  listWorkstations,
   updatePart,
 } from "@/lib/api/cmdb";
 import type { Part, PartCategory } from "@/types/cmdb";
@@ -47,6 +48,7 @@ export default function PartList() {
 
   const { data: parts = [], isLoading } = useQuery({ queryKey: ["parts"], queryFn: listParts });
   const { data: servers = [] } = useQuery({ queryKey: ["servers"], queryFn: listServers });
+  const { data: workstations = [] } = useQuery({ queryKey: ["workstations"], queryFn: listWorkstations });
 
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState<PartCategory | "all">("all");
@@ -221,6 +223,7 @@ export default function PartList() {
         defaultType={mvType}
         parts={parts}
         servers={servers}
+        workstations={workstations}
         onClose={() => setMvOpen(false)}
         onSubmit={(d) => mMove.mutateAsync(d)}
       />

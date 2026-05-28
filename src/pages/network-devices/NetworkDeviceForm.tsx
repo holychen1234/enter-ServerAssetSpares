@@ -31,10 +31,6 @@ const schema = z.object({
   manufacturer: z.enum(["Cisco", "Huawei", "H3C", "Arista", "Juniper", "Ruijie", "Other"]),
   model: z.string().min(1, "必填"),
   firmwareVersion: z.string().optional(),
-  cpuModel: z.string().optional(),
-  cpuCount: z.coerce.number().int().min(0),
-  memoryGB: z.coerce.number().int().min(0),
-  flashGB: z.coerce.number().int().min(0),
   mgmtIp: z.string().min(1, "必填"),
   mgmtProtocol: z.enum(["ssh", "snmp", "telnet"]),
   mgmtPort: z.coerce.number().int().min(1).max(65535),
@@ -72,10 +68,6 @@ const EMPTY: NetworkDeviceFormData = {
   manufacturer: "Cisco",
   model: "",
   firmwareVersion: "",
-  cpuModel: "",
-  cpuCount: 1,
-  memoryGB: 0,
-  flashGB: 0,
   mgmtIp: "",
   mgmtProtocol: "ssh",
   mgmtPort: 22,
@@ -113,10 +105,6 @@ export function NetworkDeviceForm({ open, initial, onClose, onSubmit }: Props) {
           manufacturer: initial.manufacturer,
           model: initial.model,
           firmwareVersion: initial.firmwareVersion ?? "",
-          cpuModel: initial.cpuModel ?? "",
-          cpuCount: initial.cpuCount,
-          memoryGB: initial.memoryGB,
-          flashGB: initial.flashGB,
           mgmtIp: initial.mgmtIp,
           mgmtProtocol: initial.mgmtProtocol,
           mgmtPort: initial.mgmtPort,
@@ -152,10 +140,10 @@ export function NetworkDeviceForm({ open, initial, onClose, onSubmit }: Props) {
       manufacturer: values.manufacturer,
       model: values.model,
       firmwareVersion: values.firmwareVersion ?? "",
-      cpuModel: values.cpuModel ?? "",
-      cpuCount: values.cpuCount,
-      memoryGB: values.memoryGB,
-      flashGB: values.flashGB,
+      cpuModel: initial?.cpuModel ?? "",
+      cpuCount: initial?.cpuCount ?? 1,
+      memoryGB: initial?.memoryGB ?? 0,
+      flashGB: initial?.flashGB ?? 0,
       mgmtIp: values.mgmtIp,
       mgmtProtocol: values.mgmtProtocol,
       mgmtPort: values.mgmtPort,
@@ -222,18 +210,6 @@ export function NetworkDeviceForm({ open, initial, onClose, onSubmit }: Props) {
           </Field>
           <Field label="固件版本">
             <Input {...form.register("firmwareVersion")} />
-          </Field>
-          <Field label="CPU 型号">
-            <Input {...form.register("cpuModel")} />
-          </Field>
-          <Field label="CPU 数量">
-            <Input type="number" min={0} {...form.register("cpuCount")} />
-          </Field>
-          <Field label="内存 (GB)">
-            <Input type="number" min={0} {...form.register("memoryGB")} />
-          </Field>
-          <Field label="存储 (GB)">
-            <Input type="number" min={0} {...form.register("flashGB")} />
           </Field>
           <Field label="端口数量">
             <Input type="number" min={0} {...form.register("portCount")} />

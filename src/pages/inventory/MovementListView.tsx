@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { createMovement, listMovements, listParts, listServers } from "@/lib/api/cmdb";
+import { createMovement, listMovements, listParts, listServers, listWorkstations } from "@/lib/api/cmdb";
 import type { MovementType } from "@/types/cmdb";
 import { PageHeader } from "@/components/cmdb/PageHeader";
 import { DataTableToolbar } from "@/components/cmdb/DataTableToolbar";
@@ -32,6 +32,7 @@ export function MovementListView({ type, title, description, defaultMvType, icon
   const { data: movements = [] } = useQuery({ queryKey: ["movements"], queryFn: listMovements });
   const { data: parts = [] } = useQuery({ queryKey: ["parts"], queryFn: listParts });
   const { data: servers = [] } = useQuery({ queryKey: ["servers"], queryFn: listServers });
+  const { data: workstations = [] } = useQuery({ queryKey: ["workstations"], queryFn: listWorkstations });
 
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
@@ -120,6 +121,7 @@ export function MovementListView({ type, title, description, defaultMvType, icon
         defaultType={defaultMvType}
         parts={parts}
         servers={servers}
+        workstations={workstations}
         onClose={() => setOpen(false)}
         onSubmit={(d) => mMove.mutateAsync(d)}
       />

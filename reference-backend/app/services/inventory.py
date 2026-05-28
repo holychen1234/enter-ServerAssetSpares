@@ -73,24 +73,32 @@ def apply_movement(db: Session, payload, operator: str) -> StockMovement:
     if payload.type == "outbound":
         if part_item.status != "in_stock":
             raise ValueError(f"备件 {part_item.sn or part_item.id} 不在库中，无法出库")
-        if payload.related_server_id:
+        if getattr(payload, "related_server_id", None):
             part_item.status = "in_use"
             part_item.installed_server_id = payload.related_server_id
+            part_item.installed_workstation_id = None
+        elif getattr(payload, "related_workstation_id", None):
+            part_item.status = "in_use"
+            part_item.installed_server_id = None
+            part_item.installed_workstation_id = payload.related_workstation_id
         else:
             part_item.status = "allocated"
             part_item.installed_server_id = None
+            part_item.installed_workstation_id = None
         part.stock -= 1
     elif payload.type == "return":
         if part_item.status not in ("allocated", "in_use"):
             raise ValueError(f"备件 {part_item.sn or part_item.id} 状态不允许归还")
         part_item.status = "in_stock"
         part_item.installed_server_id = None
+        part_item.installed_workstation_id = None
         part.stock += 1
     elif payload.type == "scrap":
         if part_item.status == "scrapped":
             raise ValueError(f"备件 {part_item.sn or part_item.id} 已报废")
         part_item.status = "scrapped"
         part_item.installed_server_id = None
+        part_item.installed_workstation_id = None
         if part_item.status != "scrapped":  # already checked above
             pass
         _sync_stock(db, part)
@@ -107,7 +115,8 @@ def apply_movement(db: Session, payload, operator: str) -> StockMovement:
         type=payload.type,
         quantity=1,
         operator=operator or payload.operator,
-        related_server_id=payload.related_server_id,
+        related_server_id=getattr(payload, "related_server_id", None),
+        related_workstation_id=getattr(payload, "related_workstation_id", None),
         reason=payload.reason,
     )
     db.add(mv)

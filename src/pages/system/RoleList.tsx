@@ -3,8 +3,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ShieldCheck, Check, X } from "lucide-react";
 
 const PERMS = [
-  { key: "主机查询", admin: true, operator: true, viewer: true },
-  { key: "主机新增 / 编辑 / 删除", admin: true, operator: true, viewer: false },
+  { key: "服务器查询", admin: true, operator: true, viewer: true },
+  { key: "服务器新增 / 编辑 / 删除", admin: true, operator: true, viewer: false },
   { key: "BMC 实时状态查看", admin: true, operator: true, viewer: true },
   { key: "BMC 远程控制（重启 / 关机）", admin: true, operator: false, viewer: false },
   { key: "备件查询", admin: true, operator: true, viewer: true },
@@ -34,7 +34,7 @@ export default function RoleList() {
       <div className="grid gap-4 sm:grid-cols-3">
         {[
           { name: "admin", label: "管理员", desc: "拥有平台所有权限，含用户/角色管理与 BMC 远程控制" },
-          { name: "operator", label: "操作员", desc: "可维护主机与备件数据，记录出入库" },
+          { name: "operator", label: "操作员", desc: "可维护服务器与备件数据，记录出入库" },
           { name: "viewer", label: "只读", desc: "仅可查看资产、备件与审计日志" },
         ].map((r) => (
           <Card key={r.name} className="shadow-card-soft">

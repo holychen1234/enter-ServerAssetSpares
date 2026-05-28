@@ -10,7 +10,7 @@ from app.api.serializers import (
 )
 from app.auth import get_current_user, require_writer
 from app.db.base import get_db
-from app.db.models import AuditLog, Part, PartItem, Profile, Server, StockMovement
+from app.db.models import AuditLog, Part, PartItem, Profile, Server, StockMovement, Workstation
 from app.services import inventory as inv_svc
 
 router = APIRouter()
@@ -205,14 +205,20 @@ def list_part_items(
         .order_by(PartItem.created_at.desc())
         .all()
     )
-    # resolve server hostnames
+    # resolve server and workstation hostnames
     server_ids = {it.installed_server_id for it in items if it.installed_server_id}
+    workstation_ids = {it.installed_workstation_id for it in items if it.installed_workstation_id}
     servers: dict[str, str] = {}
+    workstations: dict[str, str] = {}
     for sid in server_ids:
         s = db.get(Server, sid)
         if s:
             servers[sid] = s.hostname
-    return [item_to_dict(it, servers.get(it.installed_server_id)) for it in items]
+    for wid in workstation_ids:
+        w = db.get(Workstation, wid)
+        if w:
+            workstations[wid] = w.hostname
+    return [item_to_dict(it, servers.get(it.installed_server_id), workstations.get(it.installed_workstation_id)) for it in items]
 
 
 @router.get("/part-items")
@@ -225,11 +231,16 @@ def lookup_item(
     if not it:
         raise HTTPException(404, f"未找到 SN={sn} 的备件单件")
     hostname = None
+    ws_hostname = None
     if it.installed_server_id:
         s = db.get(Server, it.installed_server_id)
         if s:
             hostname = s.hostname
-    return item_to_dict(it, hostname)
+    if it.installed_workstation_id:
+        w = db.get(Workstation, it.installed_workstation_id)
+        if w:
+            ws_hostname = w.hostname
+    return item_to_dict(it, hostname, ws_hostname)
 
 
 @router.post("/part-items/lookup-batch")
@@ -318,6 +329,7 @@ def update_part_item(
         ("status", "status"),
         ("location", "location"),
         ("installedServerId", "installed_server_id"),
+        ("installedWorkstationId", "installed_workstation_id"),
         ("remark", "remark"),
     ):
         if camel in body and body[camel] is not None:
@@ -392,12 +404,15 @@ def list_movements(
     out = []
     parts_cache: dict[str, Part] = {}
     servers_cache: dict[str, Server] = {}
+    workstations_cache: dict[str, Workstation] = {}
     items_cache: dict[str, PartItem] = {}
     for m in rows:
         if m.part_id not in parts_cache:
             parts_cache[m.part_id] = db.get(Part, m.part_id)
         if m.related_server_id and m.related_server_id not in servers_cache:
             servers_cache[m.related_server_id] = db.get(Server, m.related_server_id)
+        if m.related_workstation_id and m.related_workstation_id not in workstations_cache:
+            workstations_cache[m.related_workstation_id] = db.get(Workstation, m.related_workstation_id)
         if m.part_item_id and m.part_item_id not in items_cache:
             items_cache[m.part_item_id] = db.get(PartItem, m.part_item_id)
         out.append(
@@ -406,6 +421,7 @@ def list_movements(
                 parts_cache.get(m.part_id),
                 servers_cache.get(m.related_server_id) if m.related_server_id else None,
                 items_cache.get(m.part_item_id),
+                workstations_cache.get(m.related_workstation_id) if m.related_workstation_id else None,
             )
         )
     return out
@@ -423,6 +439,7 @@ def create_movement(
         quantity = body["quantity"]
         operator = body.get("operator", user.username)
         related_server_id = body.get("relatedServerId")
+        related_workstation_id = body.get("relatedWorkstationId")
         part_item_id = body.get("partItemId")
         reason = body["reason"]
         items = body.get("items")  # inbound: list of {sn, location}
@@ -435,5 +452,6 @@ def create_movement(
     db.refresh(mv)
     part = db.get(Part, mv.part_id)
     server = db.get(Server, mv.related_server_id) if mv.related_server_id else None
+    workstation = db.get(Workstation, mv.related_workstation_id) if mv.related_workstation_id else None
     part_item = db.get(PartItem, mv.part_item_id) if mv.part_item_id else None
-    return movement_to_dict(mv, part, server, part_item)
+    return movement_to_dict(mv, part, server, part_item, workstation)

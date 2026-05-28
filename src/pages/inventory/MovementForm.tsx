@@ -21,7 +21,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
-import type { Part, PartItem, Server, MovementType } from "@/types/cmdb";
+import type { Part, PartItem, Server, Workstation, MovementType } from "@/types/cmdb";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { listPartItems } from "@/lib/api/cmdb";
@@ -32,6 +32,7 @@ const schema = z.object({
   quantity: z.coerce.number().int().min(1, "数量必须大于 0"),
   operator: z.string().min(1, "必填"),
   relatedServerId: z.string().optional(),
+  relatedWorkstationId: z.string().optional(),
   partItemId: z.string().optional(),
   partItemIds: z.array(z.string()),
   itemSns: z.string().optional(),
@@ -46,11 +47,12 @@ interface Props {
   defaultType: MovementType;
   parts: Part[];
   servers: Server[];
+  workstations?: Workstation[];
   onClose: () => void;
   onSubmit: (data: MovementFormData) => Promise<void> | void;
 }
 
-export function MovementForm({ open, defaultType, parts, servers, onClose, onSubmit }: Props) {
+export function MovementForm({ open, defaultType, parts, servers, workstations = [], onClose, onSubmit }: Props) {
   const { user } = useAuth();
   const form = useForm<MovementFormData>({
     resolver: zodResolver(schema),
@@ -60,6 +62,7 @@ export function MovementForm({ open, defaultType, parts, servers, onClose, onSub
       quantity: 1,
       operator: user?.username ?? "",
       relatedServerId: "",
+      relatedWorkstationId: "",
       partItemIds: [],
       itemSns: "",
       reason: "",
@@ -79,6 +82,7 @@ export function MovementForm({ open, defaultType, parts, servers, onClose, onSub
         quantity: 1,
         operator: user?.username ?? "",
         relatedServerId: "",
+        relatedWorkstationId: "",
         partItemIds: [],
         itemSns: "",
         reason: "",
@@ -142,6 +146,7 @@ export function MovementForm({ open, defaultType, parts, servers, onClose, onSub
           quantity: 1,
           operator: v.operator,
           relatedServerId: showServer && v.relatedServerId ? v.relatedServerId : undefined,
+          relatedWorkstationId: showServer && v.relatedWorkstationId ? v.relatedWorkstationId : undefined,
           partItemId: itemId,
           partItemIds: [],
           reason: v.reason,
@@ -296,16 +301,34 @@ export function MovementForm({ open, defaultType, parts, servers, onClose, onSub
           )}
 
           {showServer && (
-            <Field label="关联主机" className="sm:col-span-2">
+            <Field label="关联服务器" className="sm:col-span-2">
               <Select
                 value={form.watch("relatedServerId") || ""}
                 onValueChange={(v) => form.setValue("relatedServerId", v)}
               >
-                <SelectTrigger><SelectValue placeholder="选择主机（可选）" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder="选择服务器（可选）" /></SelectTrigger>
                 <SelectContent>
                   {servers.map((s) => (
                     <SelectItem key={s.id} value={s.id}>
                       {s.hostname} · {s.location.idc} {s.location.rack}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          )}
+
+          {showServer && watchPartId && parts.find((p) => p.id === watchPartId)?.category === "monitor" && workstations.length > 0 && (
+            <Field label="关联终端PC" className="sm:col-span-2">
+              <Select
+                value={form.watch("relatedWorkstationId") || ""}
+                onValueChange={(v) => form.setValue("relatedWorkstationId", v)}
+              >
+                <SelectTrigger><SelectValue placeholder="选择终端PC（可选）" /></SelectTrigger>
+                <SelectContent>
+                  {workstations.map((w) => (
+                    <SelectItem key={w.id} value={w.id}>
+                      {w.hostname} · {w.userName || w.department || "—"}
                     </SelectItem>
                   ))}
                 </SelectContent>

@@ -77,7 +77,7 @@ export async function createServer(
   await writeAudit(
     "server.create",
     `srv:${row.hostname}`,
-    `录入主机 ${row.hostname}`,
+    `录入服务器 ${row.hostname}`,
   );
   return rowToServer(row);
 }
@@ -124,7 +124,7 @@ export async function updateServer(
     .select("*")
     .single();
   if (error) throw error;
-  await writeAudit("server.update", `srv:${row.hostname}`, "更新主机信息");
+  await writeAudit("server.update", `srv:${row.hostname}`, "更新服务器信息");
   return rowToServer(row);
 }
 
@@ -137,7 +137,7 @@ export async function deleteServer(id: string): Promise<void> {
   const { error } = await supabase.from("servers").delete().eq("id", id);
   if (error) throw error;
   if (row)
-    await writeAudit("server.delete", `srv:${row.hostname}`, "删除主机", "warn");
+    await writeAudit("server.delete", `srv:${row.hostname}`, "删除服务器", "warn");
 }
 
 export async function batchDeleteServers(ids: string[]): Promise<void> {
@@ -152,7 +152,7 @@ export async function batchDeleteServers(ids: string[]): Promise<void> {
   if (hostnames.length > 0) {
     await writeAudit(
       "server.batch_delete",
-      `srv:${hostnames.length}台主机`,
+      `srv:${hostnames.length}台服务器`,
       hostnames.join(", "),
       "warn",
     );

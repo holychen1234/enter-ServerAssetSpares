@@ -47,7 +47,7 @@ const LEVEL_CLASS: Record<AuditEntry["level"], string> = {
 
 const ACTION_GROUPS: { label: string; value: string }[] = [
   { label: "全部模块", value: "" },
-  { label: "主机", value: "server." },
+  { label: "服务器", value: "server." },
   { label: "备件", value: "part." },
   { label: "出入库", value: "movement." },
   { label: "用户", value: "user." },

@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { listServers, listNetworkDevices, listWorkstations, listParts, listMovements, listAuditLogs } from "@/lib/api/cmdb";
 import { StatCard } from "@/components/cmdb/StatCard";
@@ -28,6 +29,7 @@ import {
   Legend,
 } from "recharts";
 import { Link } from "react-router-dom";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const STATUS_COLORS: Record<string, string> = {
   online: "hsl(var(--success))",
@@ -36,13 +38,36 @@ const STATUS_COLORS: Record<string, string> = {
   retired: "hsl(var(--muted-foreground))",
 };
 
+const STATUS_LABELS: Record<string, string> = {
+  online: "在线",
+  offline: "离线",
+  maintenance: "维护",
+  retired: "下架",
+};
+
 const CATEGORY_LABELS: Record<string, string> = {
   disk: "硬盘",
   memory: "内存",
   nic: "网卡",
   optical: "光模块",
+  monitor: "显示器",
   other: "其他",
 };
+
+const BRAND_COLORS = [
+  "hsl(var(--chart-1))",
+  "hsl(var(--chart-2))",
+  "hsl(var(--chart-3))",
+  "hsl(var(--chart-4))",
+  "hsl(var(--chart-5))",
+];
+
+type AssetType = "all" | "servers" | "networkDevices" | "workstations";
+
+interface AssetItem {
+  status: string;
+  manufacturer: string;
+}
 
 export default function Dashboard() {
   const { data: servers = [] } = useQuery({ queryKey: ["servers"], queryFn: listServers });
@@ -56,6 +81,9 @@ export default function Dashboard() {
   });
   const logs = auditPage?.items ?? [];
 
+  const [statusType, setStatusType] = useState<AssetType>("all");
+  const [brandType, setBrandType] = useState<AssetType>("all");
+
   const serverTotal = servers.length;
   const serverOnline = servers.filter((s) => s.status === "online").length;
   const serverAlerts = servers.filter((s) => s.status === "offline" || s.status === "maintenance").length;
@@ -63,33 +91,72 @@ export default function Dashboard() {
   const wsTotal = workstations.length;
   const lowStock = parts.filter((p) => p.stock < p.safetyStock).length;
 
-  const statusData = (["online", "offline", "maintenance", "retired"] as const).map((k) => ({
-    name: k,
-    label: { online: "在线", offline: "离线", maintenance: "维护", retired: "下架" }[k],
-    value: servers.filter((s) => s.status === k).length,
-  }));
+  const allAssets: AssetItem[] = useMemo(() => {
+    const items: AssetItem[] = [];
+    servers.forEach((s) => items.push({ status: s.status, manufacturer: s.manufacturer }));
+    networkDevices.forEach((d) => items.push({ status: d.status, manufacturer: d.manufacturer }));
+    workstations.forEach((w) => items.push({ status: w.status, manufacturer: w.manufacturer }));
+    return items;
+  }, [servers, networkDevices, workstations]);
 
-  const stockData = (["disk", "memory", "nic", "optical", "other"] as const).map((c) => ({
+  const serverAssets: AssetItem[] = useMemo(
+    () => servers.map((s) => ({ status: s.status, manufacturer: s.manufacturer })),
+    [servers],
+  );
+  const ndevAssets: AssetItem[] = useMemo(
+    () => networkDevices.map((d) => ({ status: d.status, manufacturer: d.manufacturer })),
+    [networkDevices],
+  );
+  const wsAssets: AssetItem[] = useMemo(
+    () => workstations.map((w) => ({ status: w.status, manufacturer: w.manufacturer })),
+    [workstations],
+  );
+
+  function getStatusData(source: AssetItem[]) {
+    return (["online", "offline", "maintenance", "retired"] as const).map((k) => ({
+      name: k,
+      label: STATUS_LABELS[k],
+      value: source.filter((a) => a.status === k).length,
+    }));
+  }
+
+  function getBrandData(source: AssetItem[]) {
+    const acc: Record<string, number> = {};
+    source.forEach((a) => {
+      acc[a.manufacturer] = (acc[a.manufacturer] ?? 0) + 1;
+    });
+    return Object.entries(acc)
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value);
+  }
+
+  const statusSource =
+    statusType === "all" ? allAssets
+    : statusType === "servers" ? serverAssets
+    : statusType === "networkDevices" ? ndevAssets
+    : wsAssets;
+
+  const brandSource =
+    brandType === "all" ? allAssets
+    : brandType === "servers" ? serverAssets
+    : brandType === "networkDevices" ? ndevAssets
+    : wsAssets;
+
+  const statusData = getStatusData(statusSource);
+  const brandData = getBrandData(brandSource);
+
+  const stockData = (["disk", "memory", "nic", "optical", "monitor", "other"] as const).map((c) => ({
     name: CATEGORY_LABELS[c],
     库存: parts.filter((p) => p.category === c).reduce((acc, p) => acc + p.stock, 0),
     安全库存: parts.filter((p) => p.category === c).reduce((acc, p) => acc + p.safetyStock, 0),
   }));
 
-  const brandData = Object.entries(
-    servers.reduce<Record<string, number>>((acc, s) => {
-      acc[s.manufacturer] = (acc[s.manufacturer] ?? 0) + 1;
-      return acc;
-    }, {}),
-  )
-    .map(([name, value]) => ({ name, value }))
-    .sort((a, b) => b.value - a.value);
-  const BRAND_COLORS = [
-    "hsl(var(--chart-1))",
-    "hsl(var(--chart-2))",
-    "hsl(var(--chart-3))",
-    "hsl(var(--chart-4))",
-    "hsl(var(--chart-5))",
-  ];
+  const typeLabel: Record<AssetType, string> = {
+    all: "全部",
+    servers: "服务器",
+    networkDevices: "网络设备",
+    workstations: "终端PC",
+  };
 
   return (
     <div className="space-y-6">
@@ -100,7 +167,7 @@ export default function Dashboard() {
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
-        <StatCard label="服务器" value={serverTotal} delta="主机资产总数" icon={Server} />
+        <StatCard label="服务器" value={serverTotal} delta="服务器资产总数" icon={Server} />
         <StatCard label="在线" value={serverOnline} delta={`占比 ${Math.round((serverOnline / Math.max(1, serverTotal)) * 100)}%`} icon={CheckCircle2} tone="success" />
         <StatCard label="告警 / 维护" value={serverAlerts} delta="离线或维护中" icon={AlertTriangle} tone="warning" />
         <StatCard label="网络设备" value={ndevTotal} delta="交换机/路由器等" icon={Router} />
@@ -111,7 +178,17 @@ export default function Dashboard() {
       <div className="grid gap-4 lg:grid-cols-2">
         <Card className="shadow-card-soft">
           <CardHeader className="pb-2">
-            <CardTitle className="text-base">主机状态分布</CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">资产状态分布</CardTitle>
+              <Tabs value={statusType} onValueChange={(v) => setStatusType(v as AssetType)}>
+                <TabsList className="h-7">
+                  <TabsTrigger value="all" className="text-xs px-2">全部</TabsTrigger>
+                  <TabsTrigger value="servers" className="text-xs px-2">服务器</TabsTrigger>
+                  <TabsTrigger value="networkDevices" className="text-xs px-2">网络设备</TabsTrigger>
+                  <TabsTrigger value="workstations" className="text-xs px-2">终端PC</TabsTrigger>
+                </TabsList>
+              </Tabs>
+            </div>
           </CardHeader>
           <CardContent className="h-[260px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -128,6 +205,7 @@ export default function Dashboard() {
                     borderRadius: 8,
                     fontSize: 12,
                   }}
+                  formatter={(_v, _n, props) => [`${props.payload.value} 台`, typeLabel[statusType]]}
                 />
                 <Legend wrapperStyle={{ fontSize: 12 }} />
               </PieChart>
@@ -137,10 +215,20 @@ export default function Dashboard() {
 
         <Card className="shadow-card-soft">
           <CardHeader className="pb-2">
-            <CardTitle className="flex items-center justify-between text-base">
-              <span>主机品牌分布</span>
-              <span className="text-xs font-normal text-muted-foreground">{brandData.length} 个厂商</span>
-            </CardTitle>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">资产品牌分布</CardTitle>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-normal text-muted-foreground">{brandData.length} 个厂商</span>
+                <Tabs value={brandType} onValueChange={(v) => setBrandType(v as AssetType)}>
+                  <TabsList className="h-7">
+                    <TabsTrigger value="all" className="text-xs px-2">全部</TabsTrigger>
+                    <TabsTrigger value="servers" className="text-xs px-2">服务器</TabsTrigger>
+                    <TabsTrigger value="networkDevices" className="text-xs px-2">网络设备</TabsTrigger>
+                    <TabsTrigger value="workstations" className="text-xs px-2">终端PC</TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </div>
+            </div>
           </CardHeader>
           <CardContent className="h-[260px]">
             <ResponsiveContainer width="100%" height="100%">
@@ -155,6 +243,7 @@ export default function Dashboard() {
                     borderRadius: 8,
                     fontSize: 12,
                   }}
+                  formatter={(_v, _n, props) => [`${props.payload.value} 台`, typeLabel[brandType]]}
                 />
                 <Bar dataKey="value" name="数量" radius={[0, 4, 4, 0]}>
                   {brandData.map((entry, i) => (
@@ -211,7 +300,7 @@ export default function Dashboard() {
                     <span className="truncate text-sm font-medium text-foreground">{m.partModel}</span>
                   </div>
                   <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                    {m.operator} · {m.relatedServerHostname ?? "—"} · {m.reason}
+                    {m.operator} · {m.relatedServerHostname ?? m.relatedWorkstationHostname ?? "—"} · {m.reason}
                   </p>
                 </div>
                 <div className="text-right">

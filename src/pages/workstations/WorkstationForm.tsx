@@ -93,7 +93,7 @@ export function WorkstationForm({ open, initial, onClose, onSubmit }: Props) {
   });
 
   const [monitors, setMonitors] = useState<MonitorInfo[]>([
-    { model: "", sizeInch: 0, resolution: "" },
+    { model: "", sizeInch: 0, resolution: "", assetTag: "" },
   ]);
 
   useEffect(() => {
@@ -127,20 +127,20 @@ export function WorkstationForm({ open, initial, onClose, onSubmit }: Props) {
         });
         setMonitors(
           initial.monitors.length > 0
-            ? initial.monitors
-            : [{ model: "", sizeInch: 0, resolution: "" }],
+            ? initial.monitors.map((m) => ({ ...m, assetTag: m.assetTag ?? "" }))
+            : [{ model: "", sizeInch: 0, resolution: "", assetTag: "" }],
         );
       } else {
         form.reset(EMPTY);
-        setMonitors([{ model: "", sizeInch: 0, resolution: "" }]);
+        setMonitors([{ model: "", sizeInch: 0, resolution: "", assetTag: "" }]);
       }
     }
   }, [open, initial, form]);
 
   const handleSubmit = form.handleSubmit(async (values) => {
-    const activeMonitors = monitors.filter(
-      (m) => m.model.trim() !== "",
-    );
+    const activeMonitors = monitors
+      .filter((m) => m.model.trim() !== "")
+      .map((m) => ({ ...m, assetTag: m.assetTag?.trim() || undefined }));
     await onSubmit({
       hostname: values.hostname,
       sn: values.sn,
@@ -170,7 +170,7 @@ export function WorkstationForm({ open, initial, onClose, onSubmit }: Props) {
     });
   });
 
-  const addMonitor = () => setMonitors([...monitors, { model: "", sizeInch: 0, resolution: "" }]);
+  const addMonitor = () => setMonitors([...monitors, { model: "", sizeInch: 0, resolution: "", assetTag: "" }]);
   const removeMonitor = (i: number) => {
     if (monitors.length <= 1) return;
     setMonitors(monitors.filter((_, idx) => idx !== i));
@@ -294,12 +294,12 @@ export function WorkstationForm({ open, initial, onClose, onSubmit }: Props) {
               </Button>
             </div>
             {monitors.map((m, i) => (
-              <div key={i} className="flex items-center gap-2">
+              <div key={i} className="flex items-center gap-2 flex-wrap">
                 <Input
                   placeholder="型号"
                   value={m.model}
                   onChange={(e) => updateMonitor(i, { model: e.target.value })}
-                  className="flex-1"
+                  className="flex-1 min-w-[120px]"
                 />
                 <Input
                   type="number"
@@ -312,6 +312,12 @@ export function WorkstationForm({ open, initial, onClose, onSubmit }: Props) {
                   placeholder="分辨率"
                   value={m.resolution}
                   onChange={(e) => updateMonitor(i, { resolution: e.target.value })}
+                  className="w-32"
+                />
+                <Input
+                  placeholder="资产编号"
+                  value={m.assetTag || ""}
+                  onChange={(e) => updateMonitor(i, { assetTag: e.target.value })}
                   className="w-36"
                 />
                 {monitors.length > 1 && (

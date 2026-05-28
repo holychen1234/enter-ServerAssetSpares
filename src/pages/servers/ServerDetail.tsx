@@ -75,7 +75,7 @@ export default function ServerDetail() {
           <ArrowLeft className="mr-1 h-4 w-4" /> 返回
         </Button>
         <Card>
-          <CardContent className="p-8 text-center text-muted-foreground">主机不存在</CardContent>
+          <CardContent className="p-8 text-center text-muted-foreground">服务器不存在</CardContent>
         </Card>
       </div>
     );
@@ -116,7 +116,7 @@ export default function ServerDetail() {
         <TabsContent value="info">
           <div className="grid gap-4 lg:grid-cols-2">
             <InfoCard title="资产信息">
-              <Row label="主机名" value={server.hostname} />
+              <Row label="服务器名" value={server.hostname} />
               <Row label="序列号" value={server.sn} mono />
               <Row label="资产编号" value={server.assetTag} mono />
               <Row label="厂商 / 型号" value={`${server.manufacturer} · ${server.model}`} />
@@ -255,7 +255,7 @@ export default function ServerDetail() {
           {/* Historical movements */}
           <Card className="shadow-card-soft">
             <CardHeader>
-              <CardTitle className="text-base">该主机历史耗材记录</CardTitle>
+              <CardTitle className="text-base">该服务器历史耗材记录</CardTitle>
             </CardHeader>
             <CardContent>
               {related.length === 0 ? (
@@ -317,7 +317,7 @@ export default function ServerDetail() {
             <CardContent className="p-0">
               {serverLogs.length === 0 ? (
                 <p className="px-6 py-8 text-center text-sm text-muted-foreground">
-                  暂无与该主机关联的操作记录
+                  暂无与该服务器关联的操作记录
                 </p>
               ) : (
                 <div className="divide-y divide-border">

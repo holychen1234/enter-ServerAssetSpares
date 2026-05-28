@@ -137,6 +137,7 @@ export interface MonitorInfo {
   model: string;
   sizeInch: number;
   resolution: string;
+  assetTag?: string;
 }
 
 export interface Workstation {
@@ -223,7 +224,7 @@ export interface BmcStatus {
   }[];
 }
 
-export type PartCategory = "disk" | "memory" | "nic" | "optical" | "other";
+export type PartCategory = "disk" | "memory" | "nic" | "optical" | "monitor" | "other";
 export type PartStatus = "in_stock" | "allocated" | "in_use" | "scrapped";
 export type PartItemStatus = "in_stock" | "allocated" | "in_use" | "scrapped";
 
@@ -235,6 +236,8 @@ export interface PartItem {
   location?: string;
   installedServerId?: string;
   installedServerHostname?: string;
+  installedWorkstationId?: string;
+  installedWorkstationHostname?: string;
   partBrand?: string;
   partModel?: string;
   partSpec?: string;
@@ -273,6 +276,8 @@ export interface StockMovement {
   operator: string;
   relatedServerId?: string;
   relatedServerHostname?: string;
+  relatedWorkstationId?: string;
+  relatedWorkstationHostname?: string;
   partItemId?: string;
   partItemSn?: string;
   reason: string;

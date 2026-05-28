@@ -158,7 +158,7 @@ export default function ServerList() {
     mutationFn: createServer,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["servers"] });
-      toast({ title: "主机已新增" });
+      toast({ title: "服务器已新增" });
       setFormOpen(false);
     },
   });
@@ -167,7 +167,7 @@ export default function ServerList() {
       updateServer(vars.id, vars.patch),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["servers"] });
-      toast({ title: "主机已更新" });
+      toast({ title: "服务器已更新" });
       setFormOpen(false);
     },
   });
@@ -175,7 +175,7 @@ export default function ServerList() {
     mutationFn: deleteServer,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["servers"] });
-      toast({ title: "主机已删除" });
+      toast({ title: "服务器已删除" });
       setToDelete(null);
     },
   });
@@ -183,7 +183,7 @@ export default function ServerList() {
     mutationFn: batchDeleteServers,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["servers"] });
-      toast({ title: `已删除 ${selectedIds.size} 台主机` });
+      toast({ title: `已删除 ${selectedIds.size} 台服务器` });
       setSelectedIds(new Set());
       setBatchDeleteOpen(false);
     },
@@ -235,8 +235,8 @@ export default function ServerList() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="主机资产"
-        description="管理公司全部主机，支持搜索、过滤、增删改查"
+        title="服务器资产"
+        description="管理公司全部服务器，支持搜索、过滤、增删改查"
         icon={<ServerIcon className="h-5 w-5" />}
         actions={
           <div className="flex gap-2">
@@ -254,20 +254,20 @@ export default function ServerList() {
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem onClick={() => {
                       const blob = exportToCsv(filtered);
-                      downloadBlob(blob, `主机资产_${new Date().toISOString().slice(0, 10)}.csv`);
+                      downloadBlob(blob, `服务器资产_${new Date().toISOString().slice(0, 10)}.csv`);
                     }}>
                       导出 CSV
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => {
                       const blob = exportToExcel(filtered);
-                      downloadBlob(blob, `主机资产_${new Date().toISOString().slice(0, 10)}.xlsx`);
+                      downloadBlob(blob, `服务器资产_${new Date().toISOString().slice(0, 10)}.xlsx`);
                     }}>
                       导出 Excel
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
                 <Button onClick={() => { setEditing(null); setFormOpen(true); }}>
-                  <Plus className="mr-1 h-4 w-4" /> 新增主机
+                  <Plus className="mr-1 h-4 w-4" /> 新增服务器
                 </Button>
               </>
             )}
@@ -280,7 +280,7 @@ export default function ServerList() {
           <DataTableToolbar
             search={search}
             onSearchChange={setSearch}
-            placeholder="搜索 主机名 / SN / 资产编号 / 业务 IP / BMC IP / 型号 / 标签"
+            placeholder="搜索 服务器名 / SN / 资产编号 / 业务 IP / BMC IP / 型号 / 标签"
             filters={
               <>
                 <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -310,7 +310,7 @@ export default function ServerList() {
         {selectedIds.size > 0 && (
           <div className="flex items-center gap-3 border-b border-border bg-muted/40 px-4 py-2">
             <span className="text-sm text-muted-foreground">
-              已选 <span className="font-medium text-foreground">{selectedIds.size}</span> 台主机
+              已选 <span className="font-medium text-foreground">{selectedIds.size}</span> 台服务器
             </span>
             <Button
               variant="ghost"
@@ -351,7 +351,7 @@ export default function ServerList() {
                   onClick={() => handleSort("hostname")}
                 >
                   <span className="inline-flex items-center">
-                    主机名 <SortIcon field="hostname" />
+                    服务器名 <SortIcon field="hostname" />
                   </span>
                 </TableHead>
                 <TableHead
@@ -554,7 +554,7 @@ export default function ServerList() {
       <AlertDialog open={!!toDelete} onOpenChange={(v) => !v && setToDelete(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>删除主机</AlertDialogTitle>
+            <AlertDialogTitle>删除服务器</AlertDialogTitle>
             <AlertDialogDescription>
               确认删除 <span className="font-mono text-foreground">{toDelete?.hostname}</span> 吗？该操作不可恢复。
             </AlertDialogDescription>
@@ -574,11 +574,11 @@ export default function ServerList() {
       <AlertDialog open={batchDeleteOpen} onOpenChange={(v) => !v && setBatchDeleteOpen(false)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>批量删除主机</AlertDialogTitle>
+            <AlertDialogTitle>批量删除服务器</AlertDialogTitle>
             <AlertDialogDescription>
               确认删除已选的{" "}
               <span className="font-medium text-foreground">{selectedIds.size}</span>{" "}
-              台主机吗？该操作不可恢复。
+              台服务器吗？该操作不可恢复。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -588,7 +588,7 @@ export default function ServerList() {
               disabled={mBatchDelete.isPending}
               onClick={() => mBatchDelete.mutate(Array.from(selectedIds))}
             >
-              删除 {selectedIds.size} 台主机
+              删除 {selectedIds.size} 台服务器
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -59,13 +59,13 @@ export default function Login() {
               <CircuitBoard className="h-5 w-5" />
             </div>
             <div>
-              <div className="text-lg font-semibold">主机资产管理</div>
+              <div className="text-lg font-semibold">服务器资产管理</div>
               <div className="text-xs text-primary-foreground/70">Asset & Inventory Console</div>
             </div>
           </div>
           <div className="space-y-3">
             <h2 className="text-3xl font-semibold leading-tight">
-              统一管理主机资产<br />与备件耗材库存
+              统一管理服务器资产<br />与备件耗材库存
             </h2>
             <p className="text-sm text-primary-foreground/75">
               支持 Redfish / IPMI 双协议采集 BMC 实时状态，

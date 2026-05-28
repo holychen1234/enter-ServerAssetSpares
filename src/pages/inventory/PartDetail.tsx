@@ -298,7 +298,7 @@ export default function PartDetail() {
                     <th className="pb-2 font-normal">SN</th>
                     <th className="pb-2 font-normal">状态</th>
                     <th className="pb-2 font-normal">位置</th>
-                    <th className="pb-2 font-normal">安装主机</th>
+                    <th className="pb-2 font-normal">安装位置</th>
                     <th className="pb-2 font-normal text-right">操作</th>
                   </tr>
                 </thead>

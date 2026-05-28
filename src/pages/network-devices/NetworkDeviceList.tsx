@@ -63,7 +63,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
-import { exportToCsv, exportToExcel, downloadBlob } from "@/lib/import-export";
+import { exportNetworkDevicesToCsv, exportNetworkDevicesToExcel, downloadBlob } from "@/lib/import-export";
 
 type SortField = "hostname" | "status" | "deviceType";
 type SortOrder = "asc" | "desc";
@@ -258,13 +258,13 @@ export default function NetworkDeviceList() {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem onClick={() => {
-                      const blob = exportToCsv(filtered);
+                      const blob = exportNetworkDevicesToCsv(filtered);
                       downloadBlob(blob, `网络设备_${new Date().toISOString().slice(0, 10)}.csv`);
                     }}>
                       导出 CSV
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => {
-                      const blob = exportToExcel(filtered);
+                      const blob = exportNetworkDevicesToExcel(filtered);
                       downloadBlob(blob, `网络设备_${new Date().toISOString().slice(0, 10)}.xlsx`);
                     }}>
                       导出 Excel
@@ -575,6 +575,7 @@ export default function NetworkDeviceList() {
         open={importOpen}
         onClose={() => setImportOpen(false)}
         onImported={() => queryClient.invalidateQueries({ queryKey: ["network-devices"] })}
+        type="networkDevice"
       />
     </div>
   );

@@ -11,7 +11,7 @@ FROM node:20-alpine AS build
 WORKDIR /app
 
 # Install pnpm via corepack (matches the version pinned in package.json)
-RUN corepack enable && corepack prepare pnpm@8.6.12 --activate
+RUN corepack enable && corepack prepare pnpm@10 --activate
 
 # Install deps using lockfile if present, else fallback to a regular install.
 COPY package.json pnpm-lock.yaml* ./

@@ -128,7 +128,11 @@ def workstation_to_dict(ws: Workstation) -> dict:
     }
 
 
-def item_to_dict(it: PartItem, server_hostname: str | None = None) -> dict:
+def item_to_dict(
+    it: PartItem,
+    server_hostname: str | None = None,
+    workstation_hostname: str | None = None,
+) -> dict:
     return {
         "id": it.id,
         "partId": it.part_id,
@@ -137,6 +141,8 @@ def item_to_dict(it: PartItem, server_hostname: str | None = None) -> dict:
         "location": it.location,
         "installedServerId": it.installed_server_id,
         "installedServerHostname": server_hostname,
+        "installedWorkstationId": it.installed_workstation_id,
+        "installedWorkstationHostname": workstation_hostname,
         "remark": it.remark,
         "createdAt": _iso(it.created_at),
     }
@@ -195,6 +201,7 @@ def movement_to_dict(
     part: Part | None,
     server: Server | None,
     part_item: PartItem | None = None,
+    workstation: Workstation | None = None,
 ) -> dict:
     return {
         "id": m.id,
@@ -206,6 +213,8 @@ def movement_to_dict(
         "operator": m.operator,
         "relatedServerId": m.related_server_id,
         "relatedServerHostname": server.hostname if server else None,
+        "relatedWorkstationId": m.related_workstation_id,
+        "relatedWorkstationHostname": workstation.hostname if workstation else None,
         "partItemId": m.part_item_id,
         "partItemSn": part_item.sn if part_item else None,
         "reason": m.reason,
