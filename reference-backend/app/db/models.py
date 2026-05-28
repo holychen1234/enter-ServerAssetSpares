@@ -154,6 +154,91 @@ class StockMovement(Base):
     created_at = Column(DateTime, default=_utc_now, nullable=False)
 
 
+class NetworkDevice(Base):
+    __tablename__ = "network_devices"
+    id = Column(CHAR(36), primary_key=True)
+    hostname = Column(String(128), nullable=False)
+    sn = Column(String(64), unique=True, nullable=False)
+    asset_tag = Column(String(64), unique=True, nullable=False)
+    device_type = Column(
+        Enum("switch", "router", "firewall", "load_balancer", name="device_type"),
+        nullable=False,
+        default="switch",
+    )
+    manufacturer = Column(String(32), nullable=False)
+    model = Column(String(64), nullable=False)
+    firmware_version = Column(String(64), nullable=True)
+    cpu_model = Column(String(128), nullable=True)
+    cpu_count = Column(Integer, nullable=False, default=1)
+    memory_gb = Column(Integer, nullable=False, default=0)
+    flash_gb = Column(Integer, nullable=False, default=0)
+    mgmt_ip = Column(String(64), nullable=False)
+    mgmt_protocol = Column(
+        Enum("ssh", "snmp", "telnet", name="mgmt_protocol"),
+        nullable=False,
+        default="ssh",
+    )
+    mgmt_port = Column(Integer, nullable=False, default=22)
+    snmp_community = Column(String(64), nullable=True)
+    ssh_username = Column(String(64), nullable=True)
+    ssh_password = Column(String(255), nullable=True)
+    biz_ip = Column(String(64), nullable=True)
+    vlan = Column(String(32), nullable=True)
+    port_count = Column(Integer, nullable=False, default=0)
+    port_spec = Column(JSON, nullable=True)
+    idc = Column(String(64), nullable=False)
+    rack = Column(String(32), nullable=False)
+    u_position = Column(String(32), nullable=False)
+    status = Column(
+        Enum("online", "offline", "maintenance", "retired", name="ndev_status"),
+        nullable=False,
+        default="online",
+    )
+    owner = Column(String(64), nullable=True)
+    purchase_date = Column(DateTime, nullable=True)
+    warranty_end = Column(DateTime, nullable=True)
+    tags = Column(JSON, nullable=True)
+    remark = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=_utc_now, nullable=False)
+    updated_at = Column(DateTime, default=_utc_now, onupdate=_utc_now, nullable=False)
+
+
+class Workstation(Base):
+    __tablename__ = "workstations"
+    id = Column(CHAR(36), primary_key=True)
+    hostname = Column(String(128), nullable=False)
+    sn = Column(String(64), unique=True, nullable=False)
+    asset_tag = Column(String(64), unique=True, nullable=False)
+    manufacturer = Column(String(32), nullable=False)
+    model = Column(String(64), nullable=False)
+    cpu_model = Column(String(128), nullable=False)
+    cpu_count = Column(Integer, nullable=False, default=1)
+    memory_gb = Column(Integer, nullable=False, default=0)
+    disk_type = Column(String(32), nullable=False, default="SSD")
+    disk_capacity_gb = Column(Integer, nullable=False, default=0)
+    mac_address = Column(String(17), nullable=True)
+    os = Column(String(64), nullable=False, default="Windows 11")
+    os_version = Column(String(64), nullable=True)
+    biz_ip = Column(String(64), nullable=True)
+    user_name = Column(String(64), nullable=True)
+    department = Column(String(64), nullable=True)
+    monitors = Column(JSON, nullable=True)
+    office_building = Column(String(64), nullable=True)
+    floor = Column(String(32), nullable=True)
+    seat = Column(String(32), nullable=True)
+    status = Column(
+        Enum("online", "offline", "maintenance", "retired", name="ws_status"),
+        nullable=False,
+        default="online",
+    )
+    purchase_date = Column(DateTime, nullable=True)
+    warranty_end = Column(DateTime, nullable=True)
+    tags = Column(JSON, nullable=True)
+    remark = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=_utc_now, nullable=False)
+    updated_at = Column(DateTime, default=_utc_now, onupdate=_utc_now, nullable=False)
+
+
 class AuditLog(Base):
     __tablename__ = "audit_logs"
     id = Column(CHAR(36), primary_key=True)

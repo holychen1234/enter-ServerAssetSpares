@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { listServers, listParts, listMovements, listAuditLogs } from "@/lib/api/cmdb";
+import { listServers, listNetworkDevices, listWorkstations, listParts, listMovements, listAuditLogs } from "@/lib/api/cmdb";
 import { StatCard } from "@/components/cmdb/StatCard";
 import { PageHeader } from "@/components/cmdb/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -11,6 +11,8 @@ import {
   AlertTriangle,
   Boxes,
   PackageMinus,
+  Router,
+  Monitor,
 } from "lucide-react";
 import {
   Bar,
@@ -44,6 +46,8 @@ const CATEGORY_LABELS: Record<string, string> = {
 
 export default function Dashboard() {
   const { data: servers = [] } = useQuery({ queryKey: ["servers"], queryFn: listServers });
+  const { data: networkDevices = [] } = useQuery({ queryKey: ["network-devices"], queryFn: listNetworkDevices });
+  const { data: workstations = [] } = useQuery({ queryKey: ["workstations"], queryFn: listWorkstations });
   const { data: parts = [] } = useQuery({ queryKey: ["parts"], queryFn: listParts });
   const { data: movements = [] } = useQuery({ queryKey: ["movements"], queryFn: listMovements });
   const { data: auditPage } = useQuery({
@@ -52,9 +56,11 @@ export default function Dashboard() {
   });
   const logs = auditPage?.items ?? [];
 
-  const total = servers.length;
-  const online = servers.filter((s) => s.status === "online").length;
-  const alerts = servers.filter((s) => s.status === "offline" || s.status === "maintenance").length;
+  const serverTotal = servers.length;
+  const serverOnline = servers.filter((s) => s.status === "online").length;
+  const serverAlerts = servers.filter((s) => s.status === "offline" || s.status === "maintenance").length;
+  const ndevTotal = networkDevices.length;
+  const wsTotal = workstations.length;
   const lowStock = parts.filter((p) => p.stock < p.safetyStock).length;
 
   const statusData = (["online", "offline", "maintenance", "retired"] as const).map((k) => ({
@@ -89,14 +95,16 @@ export default function Dashboard() {
     <div className="space-y-6">
       <PageHeader
         title="仪表盘"
-        description="主机资产与备件库存全局概览"
+        description="服务器、网络设备、终端PC 与备件库存全局概览"
         icon={<LayoutDashboard className="h-5 w-5" />}
       />
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="资产总数" value={total} delta={`${servers.length} 台设备纳入管理`} icon={Server} />
-        <StatCard label="在线" value={online} delta={`占比 ${Math.round((online / Math.max(1, total)) * 100)}%`} icon={CheckCircle2} tone="success" />
-        <StatCard label="告警 / 维护" value={alerts} delta="离线或维护中" icon={AlertTriangle} tone="warning" />
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+        <StatCard label="服务器" value={serverTotal} delta="主机资产总数" icon={Server} />
+        <StatCard label="在线" value={serverOnline} delta={`占比 ${Math.round((serverOnline / Math.max(1, serverTotal)) * 100)}%`} icon={CheckCircle2} tone="success" />
+        <StatCard label="告警 / 维护" value={serverAlerts} delta="离线或维护中" icon={AlertTriangle} tone="warning" />
+        <StatCard label="网络设备" value={ndevTotal} delta="交换机/路由器等" icon={Router} />
+        <StatCard label="终端PC" value={wsTotal} delta="办公电脑/笔记本" icon={Monitor} />
         <StatCard label="库存预警" value={lowStock} delta="低于安全库存的备件" icon={PackageMinus} tone="danger" />
       </div>
 

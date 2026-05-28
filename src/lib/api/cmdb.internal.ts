@@ -4,10 +4,12 @@
 import type {
   AppUser,
   BmcStatus,
+  NetworkDevice,
   Part,
   PartItem,
   Server,
   StockMovement,
+  Workstation,
 } from "@/types/cmdb";
 import { INTERNAL_API_BASE } from "./mode";
 
@@ -116,6 +118,80 @@ export async function getBmcStatus(
 ): Promise<BmcStatus> {
   const qs = opts.force ? "?refresh=true" : "";
   return api<BmcStatus>(`/servers/${serverId}/bmc${qs}`);
+}
+
+// ---------- Network Devices ----------
+export async function listNetworkDevices(): Promise<NetworkDevice[]> {
+  return api<NetworkDevice[]>("/network-devices");
+}
+
+export async function getNetworkDevice(id: string): Promise<NetworkDevice | undefined> {
+  try {
+    return await api<NetworkDevice>(`/network-devices/${id}`);
+  } catch {
+    return undefined;
+  }
+}
+
+export async function createNetworkDevice(
+  data: Omit<NetworkDevice, "id" | "createdAt" | "updatedAt">,
+): Promise<NetworkDevice> {
+  return api<NetworkDevice>("/network-devices", { method: "POST", body: data });
+}
+
+export async function updateNetworkDevice(
+  id: string,
+  patch: Partial<NetworkDevice>,
+): Promise<NetworkDevice> {
+  return api<NetworkDevice>(`/network-devices/${id}`, { method: "PATCH", body: patch });
+}
+
+export async function deleteNetworkDevice(id: string): Promise<void> {
+  await api<void>(`/network-devices/${id}`, { method: "DELETE" });
+}
+
+export async function batchDeleteNetworkDevices(ids: string[]): Promise<void> {
+  await api<void>("/network-devices/batch-delete", {
+    method: "POST",
+    body: { ids },
+  });
+}
+
+// ---------- Workstations ----------
+export async function listWorkstations(): Promise<Workstation[]> {
+  return api<Workstation[]>("/workstations");
+}
+
+export async function getWorkstation(id: string): Promise<Workstation | undefined> {
+  try {
+    return await api<Workstation>(`/workstations/${id}`);
+  } catch {
+    return undefined;
+  }
+}
+
+export async function createWorkstation(
+  data: Omit<Workstation, "id" | "createdAt" | "updatedAt">,
+): Promise<Workstation> {
+  return api<Workstation>("/workstations", { method: "POST", body: data });
+}
+
+export async function updateWorkstation(
+  id: string,
+  patch: Partial<Workstation>,
+): Promise<Workstation> {
+  return api<Workstation>(`/workstations/${id}`, { method: "PATCH", body: patch });
+}
+
+export async function deleteWorkstation(id: string): Promise<void> {
+  await api<void>(`/workstations/${id}`, { method: "DELETE" });
+}
+
+export async function batchDeleteWorkstations(ids: string[]): Promise<void> {
+  await api<void>("/workstations/batch-delete", {
+    method: "POST",
+    body: { ids },
+  });
 }
 
 // ---------- Parts ----------

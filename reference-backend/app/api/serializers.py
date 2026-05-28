@@ -1,7 +1,16 @@
 from datetime import datetime, timezone
 from typing import Iterable
 
-from app.db.models import AuditLog, Part, PartItem, Profile, Server, StockMovement
+from app.db.models import (
+    AuditLog,
+    NetworkDevice,
+    Part,
+    PartItem,
+    Profile,
+    Server,
+    StockMovement,
+    Workstation,
+)
 
 
 def _iso(dt: datetime | None) -> str:
@@ -45,6 +54,77 @@ def server_to_dict(s: Server) -> dict:
         "remark": s.remark,
         "createdAt": _iso(s.created_at),
         "updatedAt": _iso(s.updated_at),
+    }
+
+
+def network_device_to_dict(nd: NetworkDevice) -> dict:
+    return {
+        "id": nd.id,
+        "hostname": nd.hostname,
+        "sn": nd.sn,
+        "assetTag": nd.asset_tag,
+        "deviceType": nd.device_type,
+        "manufacturer": nd.manufacturer,
+        "model": nd.model,
+        "firmwareVersion": nd.firmware_version or "",
+        "cpuModel": nd.cpu_model or "",
+        "cpuCount": nd.cpu_count,
+        "memoryGB": nd.memory_gb,
+        "flashGB": nd.flash_gb,
+        "mgmtIp": nd.mgmt_ip,
+        "mgmtProtocol": nd.mgmt_protocol,
+        "mgmtPort": nd.mgmt_port,
+        "snmpCommunity": nd.snmp_community or "",
+        "sshUsername": nd.ssh_username or "",
+        "sshPasswordSet": bool(nd.ssh_password),
+        "bizIp": nd.biz_ip or "",
+        "vlan": nd.vlan or "",
+        "portCount": nd.port_count,
+        "portSpec": nd.port_spec or [],
+        "idc": nd.idc,
+        "rack": nd.rack,
+        "uPosition": nd.u_position,
+        "status": nd.status,
+        "owner": nd.owner or "",
+        "purchaseDate": nd.purchase_date.isoformat() if isinstance(nd.purchase_date, (datetime,)) else (nd.purchase_date or ""),
+        "warrantyEnd": nd.warranty_end.isoformat() if isinstance(nd.warranty_end, (datetime,)) else (nd.warranty_end or ""),
+        "tags": nd.tags or [],
+        "remark": nd.remark,
+        "createdAt": _iso(nd.created_at),
+        "updatedAt": _iso(nd.updated_at),
+    }
+
+
+def workstation_to_dict(ws: Workstation) -> dict:
+    return {
+        "id": ws.id,
+        "hostname": ws.hostname,
+        "sn": ws.sn,
+        "assetTag": ws.asset_tag,
+        "manufacturer": ws.manufacturer,
+        "model": ws.model,
+        "cpuModel": ws.cpu_model,
+        "cpuCount": ws.cpu_count,
+        "memoryGB": ws.memory_gb,
+        "diskType": ws.disk_type,
+        "diskCapacityGB": ws.disk_capacity_gb,
+        "macAddress": ws.mac_address or "",
+        "os": ws.os,
+        "osVersion": ws.os_version or "",
+        "bizIp": ws.biz_ip or "",
+        "userName": ws.user_name or "",
+        "department": ws.department or "",
+        "monitors": ws.monitors or [],
+        "officeBuilding": ws.office_building or "",
+        "floor": ws.floor or "",
+        "seat": ws.seat or "",
+        "status": ws.status,
+        "purchaseDate": ws.purchase_date.isoformat() if isinstance(ws.purchase_date, (datetime,)) else (ws.purchase_date or ""),
+        "warrantyEnd": ws.warranty_end.isoformat() if isinstance(ws.warranty_end, (datetime,)) else (ws.warranty_end or ""),
+        "tags": ws.tags or [],
+        "remark": ws.remark,
+        "createdAt": _iso(ws.created_at),
+        "updatedAt": _iso(ws.updated_at),
     }
 
 
