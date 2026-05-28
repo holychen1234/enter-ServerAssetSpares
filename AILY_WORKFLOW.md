@@ -23,8 +23,10 @@
 
 | 工具名 | 用途 | 关键参数 |
 |---|---|---|
-| search_servers | 搜索主机 | keyword, manufacturer, status, idc, hostname, sn, ip |
+| search_servers | 搜索服务器 | keyword, manufacturer, status, idc, hostname, sn, ip |
 | get_server_detail | 主机详情（支持资产编号+IP） | identifier（主机名/SN/资产编号/IP） |
+| search_network_devices | 搜索网络设备 | keyword, device_type, manufacturer, status, idc, limit |
+| search_workstations | 搜索终端PC | keyword, manufacturer, status, os, department, limit |
 | search_parts | 搜索备件库存 | keyword, category, spec, status |
 | get_server_stats | 资产统计 | group_by（status/idc/manufacturer） |
 | get_server_disks | 主机硬盘列表 | identifier（主机名/SN/资产编号/IP） |
@@ -93,6 +95,12 @@
 6. get_server_bmc_status — 获取 BMC 实时硬件状态（CPU温度、风扇转速/数量、硬盘详情、电源功率/数量、整机健康、告警）
    参数: identifier(必填,主机名、SN序列号、资产编号或IP地址)
 
+7. search_network_devices — 搜索网络设备（交换机/路由器/防火墙/负载均衡）
+   参数: keyword(模糊搜索), device_type(switch/router/firewall/load_balancer), manufacturer(厂商:Cisco/Huawei/H3C/Arista/Juniper/Ruijie/Other), status(online/offline/maintenance/retired), idc(机房), limit(整数,默认20)
+
+8. search_workstations — 搜索终端PC（办公电脑/笔记本）
+   参数: keyword(模糊搜索,匹配计算机名/SN/资产编号/IP/型号/使用人/部门), manufacturer(厂商:Dell/HP/Lenovo/Apple/Huawei/ASUS/Acer/Microsoft/Other), status(online/offline/maintenance/retired), os(Windows 10/Windows 11/macOS/Ubuntu/CentOS/Other), department(部门), limit(整数,默认20)
+
 ## 路由规则
 
 - 用户问某个品牌的设备有多少台/有哪些 → search_servers（用 manufacturer 参数）
@@ -130,6 +138,9 @@
 - 用户问 "BMC IP / 带外管理IP / 管理地址" → get_server_detail（即使给的输入是业务IP）
 - 用户问硬件实时数据 → get_server_bmc_status
 - 如果用户同时问数量和列表，优先 search_servers（更直观）
+- 用户问交换机/路由器/防火墙/负载均衡/网络设备 → search_network_devices
+- 用户问办公电脑/笔记本/终端/PC/台式机 → search_workstations
+- 用户问某部门有多少台电脑/XX的电脑配置 → search_workstations（用 department 或 keyword 参数）
 
 ## 示例
 
@@ -198,6 +209,27 @@
 
 用户: "各机房分别有多少台"
 输出: {"tool": "get_server_stats", "params": {"group_by": "idc"}}
+
+用户: "交换机有哪些"
+输出: {"tool": "search_network_devices", "params": {"device_type": "switch"}}
+
+用户: "核心交换机有多少台"
+输出: {"tool": "search_network_devices", "params": {"device_type": "switch", "keyword": "core"}}
+
+用户: "华为的路由器有几台"
+输出: {"tool": "search_network_devices", "params": {"manufacturer": "Huawei", "device_type": "router"}}
+
+用户: "财务部有多少台电脑"
+输出: {"tool": "search_workstations", "params": {"department": "财务部"}}
+
+用户: "Windows 11 的终端有哪些"
+输出: {"tool": "search_workstations", "params": {"os": "Windows 11"}}
+
+用户: "张三的电脑配置是什么"
+输出: {"tool": "search_workstations", "params": {"keyword": "张三"}}
+
+用户: "公司有几台Mac"
+输出: {"tool": "search_workstations", "params": {"manufacturer": "Apple"}}
 ```
 
 ### User 提示词
@@ -366,6 +398,14 @@ def main(llm_output: str) -> dict:
 ### 统计格式（get_server_stats）
 先给总数，再按分组列出：key: N 台 (占比 X%)
 - 不编造数据
+
+### 网络设备列表格式（search_network_devices）
+每条：设备名 - 类型(交换机/路由器/防火墙/负载均衡) - 厂商/型号 - 状态 - 管理IP - 机房
+先给总数，再列前10条
+
+### 终端PC列表格式（search_workstations）
+每条：计算机名 - 厂商/型号 - OS - 使用人/部门 - 状态 - IP
+先给总数，再列前10条
 ```
 
 ### User 提示词
@@ -426,6 +466,13 @@ def main(llm_output: str) -> dict:
 | **DB-SH-01 开机了没** | **get_server_bmc_status(identifier=DB-SH-01)** |
 | **这台机器的健康状态** | **get_server_bmc_status(identifier=xxx)** |
 | **DB-SH-01 有什么告警** | **get_server_bmc_status(identifier=DB-SH-01)** |
+| 交换机有哪些 | search_network_devices(device_type=switch) |
+| 核心交换机有多少台 | search_network_devices(keyword=core, device_type=switch) |
+| 华为的路由器有几台 | search_network_devices(manufacturer=Huawei, device_type=router) |
+| 财务部有多少台电脑 | search_workstations(department=财务部) |
+| Windows 11 的终端有哪些 | search_workstations(os=Windows 11) |
+| 张三的电脑配置 | search_workstations(keyword=张三) |
+| 公司有几台Mac | search_workstations(manufacturer=Apple) |
 
 ---
 
@@ -449,3 +496,4 @@ def main(llm_output: str) -> dict:
 | 日期 | 变更 |
 |---|---|
 | 2026-05-27 | 新增 `get_server_bmc_status` 端点（CPU温度/风扇/磁盘/电源/告警）；所有 identifier 端点支持 asset_tag（资产编号）查询 |
+| 2026-05-28 | 新增 `search_network_devices` 和 `search_workstations` 端点；扩展 CMDB 资产类型覆盖网络设备和终端PC |

@@ -174,6 +174,46 @@ export async function getBmcStatus(
   return data as BmcStatus;
 }
 
+// ---------- Network Devices (not supported on cloud / Supabase) ----------
+export async function listNetworkDevices(): Promise<import("@/types/cmdb").NetworkDevice[]> {
+  return [];
+}
+export async function getNetworkDevice(_id: string): Promise<import("@/types/cmdb").NetworkDevice | undefined> {
+  return undefined;
+}
+export async function createNetworkDevice(
+  _data: Omit<import("@/types/cmdb").NetworkDevice, "id" | "createdAt" | "updatedAt">,
+): Promise<import("@/types/cmdb").NetworkDevice> {
+  throw new Error("Network devices not supported on cloud backend");
+}
+export async function updateNetworkDevice(
+  _id: string, _patch: Partial<import("@/types/cmdb").NetworkDevice>,
+): Promise<import("@/types/cmdb").NetworkDevice> {
+  throw new Error("Network devices not supported on cloud backend");
+}
+export async function deleteNetworkDevice(_id: string): Promise<void> {}
+export async function batchDeleteNetworkDevices(_ids: string[]): Promise<void> {}
+
+// ---------- Workstations (not supported on cloud / Supabase) ----------
+export async function listWorkstations(): Promise<import("@/types/cmdb").Workstation[]> {
+  return [];
+}
+export async function getWorkstation(_id: string): Promise<import("@/types/cmdb").Workstation | undefined> {
+  return undefined;
+}
+export async function createWorkstation(
+  _data: Omit<import("@/types/cmdb").Workstation, "id" | "createdAt" | "updatedAt">,
+): Promise<import("@/types/cmdb").Workstation> {
+  throw new Error("Workstations not supported on cloud backend");
+}
+export async function updateWorkstation(
+  _id: string, _patch: Partial<import("@/types/cmdb").Workstation>,
+): Promise<import("@/types/cmdb").Workstation> {
+  throw new Error("Workstations not supported on cloud backend");
+}
+export async function deleteWorkstation(_id: string): Promise<void> {}
+export async function batchDeleteWorkstations(_ids: string[]): Promise<void> {}
+
 // ---------- Parts ----------
 export async function listParts(): Promise<Part[]> {
   const { data, error } = await supabase

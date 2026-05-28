@@ -56,6 +56,120 @@ export interface Server {
   updatedAt: string;
 }
 
+// ── Network Device ──────────────────────────────────────────
+
+export type NetworkDeviceType =
+  | "switch"
+  | "router"
+  | "firewall"
+  | "load_balancer";
+
+export type NetworkDeviceManufacturer =
+  | "Cisco"
+  | "Huawei"
+  | "H3C"
+  | "Arista"
+  | "Juniper"
+  | "Ruijie"
+  | "Other";
+
+export type MgmtProtocol = "ssh" | "snmp" | "telnet";
+
+export interface NetworkDevice {
+  id: string;
+  hostname: string;
+  sn: string;
+  assetTag: string;
+  deviceType: NetworkDeviceType;
+  manufacturer: NetworkDeviceManufacturer;
+  model: string;
+  firmwareVersion: string;
+  cpuModel: string;
+  cpuCount: number;
+  memoryGB: number;
+  flashGB: number;
+  mgmtIp: string;
+  mgmtProtocol: MgmtProtocol;
+  mgmtPort: number;
+  snmpCommunity: string;
+  sshUsername: string;
+  sshPassword?: string;
+  sshPasswordSet?: boolean;
+  bizIp: string;
+  vlan: string;
+  portCount: number;
+  portSpec: { name: string; type: string; speed: string; status: string; connectedTo?: string }[];
+  idc: string;
+  rack: string;
+  uPosition: string;
+  status: ServerStatus;
+  owner: string;
+  purchaseDate: string;
+  warrantyEnd: string;
+  tags: string[];
+  remark?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ── Workstation ─────────────────────────────────────────────
+
+export type WorkstationManufacturer =
+  | "Dell"
+  | "HP"
+  | "Lenovo"
+  | "Apple"
+  | "Huawei"
+  | "ASUS"
+  | "Acer"
+  | "Microsoft"
+  | "Other";
+
+export type OperatingSystem =
+  | "Windows 10"
+  | "Windows 11"
+  | "macOS"
+  | "Ubuntu"
+  | "CentOS"
+  | "Other";
+
+export interface MonitorInfo {
+  model: string;
+  sizeInch: number;
+  resolution: string;
+}
+
+export interface Workstation {
+  id: string;
+  hostname: string;
+  sn: string;
+  assetTag: string;
+  manufacturer: WorkstationManufacturer;
+  model: string;
+  cpuModel: string;
+  cpuCount: number;
+  memoryGB: number;
+  diskType: string;
+  diskCapacityGB: number;
+  macAddress: string;
+  os: OperatingSystem;
+  osVersion: string;
+  bizIp: string;
+  userName: string;
+  department: string;
+  monitors: MonitorInfo[];
+  officeBuilding: string;
+  floor: string;
+  seat: string;
+  status: ServerStatus;
+  purchaseDate: string;
+  warrantyEnd: string;
+  tags: string[];
+  remark?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type Health = "OK" | "Warning" | "Critical";
 
 /**

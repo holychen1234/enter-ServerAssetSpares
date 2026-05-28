@@ -13,9 +13,9 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.api.serializers import part_to_dict, server_to_dict
+from app.api.serializers import network_device_to_dict, part_to_dict, server_to_dict, workstation_to_dict
 from app.db.base import get_db
-from app.db.models import Part, Server
+from app.db.models import NetworkDevice, Part, Server, Workstation
 from app.services import bmc as bmc_svc
 from app.settings import settings
 
@@ -372,6 +372,126 @@ async def get_server_bmc_status(
         # alerts
         "alertCount": len(status.get("alerts") or []),
         "alerts": status.get("alerts") or [],
+    }
+
+
+@router.get("/search-network-devices")
+def search_network_devices(
+    keyword: str = Query(default="", description="任意关键词，匹配设备名/SN/资产编号/管理IP/型号/厂商"),
+    device_type: str = Query(default="", description="设备类型: switch, router, firewall, load_balancer"),
+    manufacturer: str = Query(default="", description="厂商过滤: Cisco, Huawei, H3C, Arista, Juniper, Ruijie"),
+    status: str = Query(default="", description="状态: online, offline, maintenance, retired"),
+    idc: str = Query(default="", description="机房过滤"),
+    limit: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    _: None = Depends(verify_api_key),
+):
+    """搜索网络设备。Aily use this when user asks about switches, routers,
+    firewalls or load balancers."""
+    q = db.query(NetworkDevice)
+
+    if keyword:
+        kw = f"%{keyword}%"
+        q = q.filter(
+            NetworkDevice.hostname.ilike(kw)
+            | NetworkDevice.sn.ilike(kw)
+            | NetworkDevice.asset_tag.ilike(kw)
+            | NetworkDevice.mgmt_ip.ilike(kw)
+            | NetworkDevice.model.ilike(kw)
+            | NetworkDevice.manufacturer.ilike(kw)
+            | NetworkDevice.idc.ilike(kw)
+        )
+    if device_type:
+        q = q.filter(NetworkDevice.device_type == device_type)
+    if manufacturer:
+        mfr_norm = _normalize_manufacturer(manufacturer)
+        if mfr_norm:
+            q = q.filter(NetworkDevice.manufacturer == mfr_norm)
+        else:
+            q = q.filter(NetworkDevice.manufacturer == manufacturer)
+    if status:
+        q = q.filter(NetworkDevice.status == status)
+    if idc:
+        q = q.filter(NetworkDevice.idc == idc)
+
+    rows = q.order_by(NetworkDevice.hostname).limit(limit).all()
+    return {
+        "count": len(rows),
+        "items": [
+            {
+                "hostname": d.hostname,
+                "sn": d.sn,
+                "assetTag": d.asset_tag,
+                "deviceType": d.device_type,
+                "manufacturer": d.manufacturer,
+                "model": d.model,
+                "mgmtIp": d.mgmt_ip,
+                "bizIp": d.biz_ip or "",
+                "status": d.status,
+                "idc": d.idc,
+            }
+            for d in rows
+        ],
+    }
+
+
+@router.get("/search-workstations")
+def search_workstations(
+    keyword: str = Query(default="", description="任意关键词，匹配计算机名/SN/资产编号/IP/型号/使用人/部门"),
+    manufacturer: str = Query(default="", description="厂商过滤: Dell, HP, Lenovo, Apple, Huawei, ASUS, Acer, Microsoft"),
+    status: str = Query(default="", description="状态: online, offline, maintenance, retired"),
+    os: str = Query(default="", description="操作系统过滤"),
+    department: str = Query(default="", description="部门过滤"),
+    limit: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    _: None = Depends(verify_api_key),
+):
+    """搜索终端PC。Aily use this when user asks about workstations,
+    desktops, laptops, or employee computers."""
+    q = db.query(Workstation)
+
+    if keyword:
+        kw = f"%{keyword}%"
+        q = q.filter(
+            Workstation.hostname.ilike(kw)
+            | Workstation.sn.ilike(kw)
+            | Workstation.asset_tag.ilike(kw)
+            | Workstation.biz_ip.ilike(kw)
+            | Workstation.model.ilike(kw)
+            | Workstation.user_name.ilike(kw)
+            | Workstation.department.ilike(kw)
+        )
+    if manufacturer:
+        mfr_norm = _normalize_manufacturer(manufacturer)
+        if mfr_norm:
+            q = q.filter(Workstation.manufacturer == mfr_norm)
+        else:
+            q = q.filter(Workstation.manufacturer == manufacturer)
+    if status:
+        q = q.filter(Workstation.status == status)
+    if os:
+        q = q.filter(Workstation.os == os)
+    if department:
+        q = q.filter(Workstation.department == department)
+
+    rows = q.order_by(Workstation.hostname).limit(limit).all()
+    return {
+        "count": len(rows),
+        "items": [
+            {
+                "hostname": w.hostname,
+                "sn": w.sn,
+                "assetTag": w.asset_tag,
+                "manufacturer": w.manufacturer,
+                "model": w.model,
+                "os": w.os,
+                "bizIp": w.biz_ip or "",
+                "userName": w.user_name or "",
+                "department": w.department or "",
+                "status": w.status,
+            }
+            for w in rows
+        ],
     }
 
 
