@@ -298,7 +298,8 @@ async def get_server_bmc_status(
     _: None = Depends(verify_api_key),
 ):
     """获取主机 BMC 实时状态。包括 CPU 温度、风扇状态/转速/数量、磁盘型号/
-    序列号/容量/状态、电源功率/数量/状态、整机健康状态等。
+    序列号/容量/状态、内存 DIMM 详情（槽位/型号/序列号/容量/类型/状态）/
+    总量、电源功率/数量/状态、整机健康状态等。
     数据来源于 BMC Redfish/IPMI 实时采集，非在线主机回退为模拟数据。"""
     s = (
         db.query(Server)
@@ -345,6 +346,24 @@ async def get_server_bmc_status(
             }
             for f in (status.get("fans") or [])
         ],
+        # memory (total + per-DIMM detail)
+        "memoryTotalGiB": (
+            status.get("memorySummary", {}).get("totalGiB")
+            if status.get("memorySummary")
+            else None
+        ),
+        "memoryModuleCount": len(status.get("memoryModules") or []),
+        "memoryModules": [
+            {
+                "slot": m["slot"],
+                "model": m["model"],
+                "sn": m.get("sn"),
+                "capacityMiB": m["capacityMiB"],
+                "memoryType": m["memoryType"],
+                "status": m["status"],
+            }
+            for m in (status.get("memoryModules") or [])
+        ],
         # disks
         "diskCount": len(status.get("drives") or []),
         "disks": [
@@ -373,6 +392,8 @@ async def get_server_bmc_status(
         "alertCount": len(status.get("alerts") or []),
         "alerts": status.get("alerts") or [],
     }
+
+
 
 
 # ── OpenAPI schema (no auth — Dify needs to fetch it for import) ─

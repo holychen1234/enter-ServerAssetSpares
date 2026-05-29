@@ -33,15 +33,96 @@
         "summary": "搜索主机资产",
         "description": "按关键词或多条件搜索主机资产列表，返回主机名、SN、型号、CPU、内存、磁盘、IP、位置等信息。适用场景：用户问「数据库服务器有几台」「查一下 DB-SH 开头的机器」「IDC-A 有哪些在线服务器」等。",
         "parameters": [
-          {"name": "keyword", "in": "query", "required": false, "schema": {"type": "string"}, "description": "任意关键词，模糊匹配主机名/SN/资产编号/IP/型号/厂商/CPU型号/IDC/备注"},
-          {"name": "hostname", "in": "query", "required": false, "schema": {"type": "string"}, "description": "主机名精确匹配"},
-          {"name": "sn", "in": "query", "required": false, "schema": {"type": "string"}, "description": "SN序列号精确匹配"},
-          {"name": "ip", "in": "query", "required": false, "schema": {"type": "string"}, "description": "IP地址匹配（业务IP或管理IP）"},
-          {"name": "model", "in": "query", "required": false, "schema": {"type": "string"}, "description": "服务器型号"},
-          {"name": "manufacturer", "in": "query", "required": false, "schema": {"type": "string"}, "description": "厂商过滤，支持中英文（戴尔/Dell, 惠普/HPE, 联想/Lenovo, 浪潮/Inspur, 超微/Supermicro, 华为/Huawei, 超聚变/XFusion, 其他/Other）"},
-          {"name": "status", "in": "query", "required": false, "schema": {"type": "string", "enum": ["online", "offline", "maintenance", "retired"]}, "description": "状态过滤"},
-          {"name": "idc", "in": "query", "required": false, "schema": {"type": "string"}, "description": "IDC机房过滤"},
-          {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "default": 20, "minimum": 1, "maximum": 100}, "description": "返回条数上限"}
+          {
+            "name": "keyword",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "任意关键词，模糊匹配主机名/SN/资产编号/IP/型号/厂商/CPU型号/IDC/备注"
+          },
+          {
+            "name": "hostname",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "主机名精确匹配"
+          },
+          {
+            "name": "sn",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "SN序列号精确匹配"
+          },
+          {
+            "name": "ip",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "IP地址匹配（业务IP或管理IP）"
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "服务器型号"
+          },
+          {
+            "name": "manufacturer",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "厂商过滤，支持中英文（戴尔/Dell, 惠普/HPE, 联想/Lenovo, 浪潮/Inspur, 超微/Supermicro, 华为/Huawei, 超聚变/XFusion, 其他/Other）"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "online",
+                "offline",
+                "maintenance",
+                "retired"
+              ]
+            },
+            "description": "状态过滤"
+          },
+          {
+            "name": "idc",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "IDC机房过滤"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "minimum": 1,
+              "maximum": 100
+            },
+            "description": "返回条数上限"
+          }
         ],
         "responses": {
           "200": {
@@ -51,30 +132,62 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "count": {"type": "integer"},
+                    "count": {
+                      "type": "integer"
+                    },
                     "items": {
                       "type": "array",
                       "items": {
                         "type": "object",
                         "properties": {
-                          "hostname": {"type": "string"},
-                          "sn": {"type": "string"},
-                          "assetTag": {"type": "string"},
-                          "manufacturer": {"type": "string"},
-                          "model": {"type": "string"},
-                          "cpuModel": {"type": "string"},
-                          "cpuCount": {"type": "integer"},
-                          "memoryGB": {"type": "integer"},
-                          "diskCount": {"type": "integer"},
-                          "status": {"type": "string"},
-                          "mgmtIp": {"type": "string"},
-                          "bizIp": {"type": "string"},
+                          "hostname": {
+                            "type": "string"
+                          },
+                          "sn": {
+                            "type": "string"
+                          },
+                          "assetTag": {
+                            "type": "string"
+                          },
+                          "manufacturer": {
+                            "type": "string"
+                          },
+                          "model": {
+                            "type": "string"
+                          },
+                          "cpuModel": {
+                            "type": "string"
+                          },
+                          "cpuCount": {
+                            "type": "integer"
+                          },
+                          "memoryGB": {
+                            "type": "integer"
+                          },
+                          "diskCount": {
+                            "type": "integer"
+                          },
+                          "status": {
+                            "type": "string"
+                          },
+                          "mgmtIp": {
+                            "type": "string"
+                          },
+                          "bizIp": {
+                            "type": "string"
+                          },
                           "location": {
                             "type": "object",
                             "properties": {
-                              "idc": {"type": "string"},
-                              "rack": {"type": "string"},
-                              "uPosition": {"type": "string"}
+                              "idc": {
+                                "type": "string"
+                              },
+                              "rack": {
+                                "type": "string"
+                              },
+                              "uPosition": {
+                                "type": "string"
+                              }
                             }
                           }
                         }
@@ -94,7 +207,15 @@
         "summary": "获取主机完整详情",
         "description": "根据主机名、SN序列号、资产编号或IP地址获取单台主机的全部资产信息。适用场景：用户问「DB-SH-01 的 CPU 型号是什么」「SN:ABC123 的内存多大」「10.0.1.5 是哪台机器」「资产编号 AST-001 的机器配置」等。",
         "parameters": [
-          {"name": "identifier", "in": "query", "required": true, "schema": {"type": "string"}, "description": "主机名、SN序列号、资产编号或IP地址（管理IP或业务IP）"}
+          {
+            "name": "identifier",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "主机名、SN序列号、资产编号或IP地址（管理IP或业务IP）"
+          }
         ],
         "responses": {
           "200": {
@@ -104,23 +225,51 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "found": {"type": "boolean"},
-                    "message": {"type": "string"},
-                    "hostname": {"type": "string"},
-                    "sn": {"type": "string"},
-                    "cpuModel": {"type": "string"},
-                    "cpuCount": {"type": "integer"},
-                    "memoryGB": {"type": "integer"},
-                    "diskCount": {"type": "integer"},
-                    "status": {"type": "string"},
-                    "mgmtIp": {"type": "string"},
-                    "bizIp": {"type": "string"},
+                    "found": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "hostname": {
+                      "type": "string"
+                    },
+                    "sn": {
+                      "type": "string"
+                    },
+                    "cpuModel": {
+                      "type": "string"
+                    },
+                    "cpuCount": {
+                      "type": "integer"
+                    },
+                    "memoryGB": {
+                      "type": "integer"
+                    },
+                    "diskCount": {
+                      "type": "integer"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "mgmtIp": {
+                      "type": "string"
+                    },
+                    "bizIp": {
+                      "type": "string"
+                    },
                     "location": {
                       "type": "object",
                       "properties": {
-                        "idc": {"type": "string"},
-                        "rack": {"type": "string"},
-                        "uPosition": {"type": "string"}
+                        "idc": {
+                          "type": "string"
+                        },
+                        "rack": {
+                          "type": "string"
+                        },
+                        "uPosition": {
+                          "type": "string"
+                        }
                       }
                     }
                   }
@@ -137,13 +286,85 @@
         "summary": "搜索备件库存",
         "description": "按关键词或多条件搜索备件库存，返回类别、品牌、型号、规格、库存数量、安全库存、存放位置。适用场景：用户问「2TB SSD 还有多少」「Intel 内存的库存」「有哪些网卡」等。",
         "parameters": [
-          {"name": "keyword", "in": "query", "required": false, "schema": {"type": "string"}, "description": "任意关键词，模糊匹配品牌/型号/规格/SN/备注"},
-          {"name": "category", "in": "query", "required": false, "schema": {"type": "string", "enum": ["disk", "memory", "nic", "optical", "other"]}, "description": "类别"},
-          {"name": "brand", "in": "query", "required": false, "schema": {"type": "string"}, "description": "品牌"},
-          {"name": "model", "in": "query", "required": false, "schema": {"type": "string"}, "description": "型号"},
-          {"name": "spec", "in": "query", "required": false, "schema": {"type": "string"}, "description": "规格，如 2TB SSD / DDR4 3200"},
-          {"name": "status", "in": "query", "required": false, "schema": {"type": "string", "enum": ["in_stock", "allocated", "in_use", "scrapped"]}, "description": "状态过滤"},
-          {"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "default": 20, "minimum": 1, "maximum": 100}, "description": "返回条数上限"}
+          {
+            "name": "keyword",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "任意关键词，模糊匹配品牌/型号/规格/SN/备注"
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "disk",
+                "memory",
+                "nic",
+                "optical",
+                "other"
+              ]
+            },
+            "description": "类别"
+          },
+          {
+            "name": "brand",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "品牌"
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "型号"
+          },
+          {
+            "name": "spec",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "规格，如 2TB SSD / DDR4 3200"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "in_stock",
+                "allocated",
+                "in_use",
+                "scrapped"
+              ]
+            },
+            "description": "状态过滤"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 20,
+              "minimum": 1,
+              "maximum": 100
+            },
+            "description": "返回条数上限"
+          }
         ],
         "responses": {
           "200": {
@@ -153,22 +374,51 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "count": {"type": "integer"},
+                    "count": {
+                      "type": "integer"
+                    },
                     "items": {
                       "type": "array",
                       "items": {
                         "type": "object",
                         "properties": {
-                          "category": {"type": "string", "enum": ["disk", "memory", "nic", "optical", "other"]},
-                          "brand": {"type": "string"},
-                          "model": {"type": "string"},
-                          "spec": {"type": "string"},
-                          "sn": {"type": "string"},
-                          "stock": {"type": "integer"},
-                          "safetyStock": {"type": "integer"},
-                          "unit": {"type": "string"},
-                          "location": {"type": "string"},
-                          "status": {"type": "string"}
+                          "category": {
+                            "type": "string",
+                            "enum": [
+                              "disk",
+                              "memory",
+                              "nic",
+                              "optical",
+                              "other"
+                            ]
+                          },
+                          "brand": {
+                            "type": "string"
+                          },
+                          "model": {
+                            "type": "string"
+                          },
+                          "spec": {
+                            "type": "string"
+                          },
+                          "sn": {
+                            "type": "string"
+                          },
+                          "stock": {
+                            "type": "integer"
+                          },
+                          "safetyStock": {
+                            "type": "integer"
+                          },
+                          "unit": {
+                            "type": "string"
+                          },
+                          "location": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string"
+                          }
                         }
                       }
                     }
@@ -186,7 +436,21 @@
         "summary": "统计主机资产概况",
         "description": "按指定维度统计主机数量分布。适用场景：用户问「各机房有多少台机器」「在线和离线分别多少台」「各厂商服务器分布」等。",
         "parameters": [
-          {"name": "group_by", "in": "query", "required": false, "schema": {"type": "string", "enum": ["status", "idc", "manufacturer"], "default": "status"}, "description": "统计维度"}
+          {
+            "name": "group_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "status",
+                "idc",
+                "manufacturer"
+              ],
+              "default": "status"
+            },
+            "description": "统计维度"
+          }
         ],
         "responses": {
           "200": {
@@ -196,15 +460,23 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "groupBy": {"type": "string"},
-                    "total": {"type": "integer"},
+                    "groupBy": {
+                      "type": "string"
+                    },
+                    "total": {
+                      "type": "integer"
+                    },
                     "items": {
                       "type": "array",
                       "items": {
                         "type": "object",
                         "properties": {
-                          "key": {"type": "string"},
-                          "count": {"type": "integer"}
+                          "key": {
+                            "type": "string"
+                          },
+                          "count": {
+                            "type": "integer"
+                          }
                         }
                       }
                     }
@@ -222,7 +494,15 @@
         "summary": "获取主机硬盘列表",
         "description": "获取某台主机的所有硬盘详细信息，包括型号、序列号、容量、介质类型、健康状态。数据来源于 BMC Redfish 实时采集。适用场景：用户问「DB-SH-01 有几块硬盘」「192.168.1.5 的硬盘型号是什么」「查一下这台机器的磁盘配置」等。",
         "parameters": [
-          {"name": "identifier", "in": "query", "required": true, "schema": {"type": "string"}, "description": "主机名、SN序列号、资产编号或IP地址"}
+          {
+            "name": "identifier",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "主机名、SN序列号、资产编号或IP地址"
+          }
         ],
         "responses": {
           "200": {
@@ -232,23 +512,47 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "found": {"type": "boolean"},
-                    "hostname": {"type": "string"},
-                    "sn": {"type": "string"},
-                    "diskCountDb": {"type": "integer"},
-                    "source": {"type": "string"},
-                    "diskCountBmc": {"type": "integer"},
+                    "found": {
+                      "type": "boolean"
+                    },
+                    "hostname": {
+                      "type": "string"
+                    },
+                    "sn": {
+                      "type": "string"
+                    },
+                    "diskCountDb": {
+                      "type": "integer"
+                    },
+                    "source": {
+                      "type": "string"
+                    },
+                    "diskCountBmc": {
+                      "type": "integer"
+                    },
                     "drives": {
                       "type": "array",
                       "items": {
                         "type": "object",
                         "properties": {
-                          "name": {"type": "string"},
-                          "model": {"type": "string"},
-                          "sn": {"type": "string"},
-                          "capacityGB": {"type": "integer"},
-                          "mediaType": {"type": "string"},
-                          "status": {"type": "string"}
+                          "name": {
+                            "type": "string"
+                          },
+                          "model": {
+                            "type": "string"
+                          },
+                          "sn": {
+                            "type": "string"
+                          },
+                          "capacityGB": {
+                            "type": "integer"
+                          },
+                          "mediaType": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string"
+                          }
                         }
                       }
                     }
@@ -264,9 +568,17 @@
       "get": {
         "operationId": "get_server_bmc_status",
         "summary": "获取主机 BMC 实时硬件状态",
-        "description": "获取某台主机的 BMC 实时硬件状态信息，包括电源状态、整机健康、CPU温度、进风口温度、风扇列表（名称/转速/状态/数量）、磁盘列表（名称/型号/序列号/容量/介质类型/状态/数量）、电源模块列表（名称/当前功率/额定功率/状态/数量）、启动进度、告警列表等。数据来源于 BMC Redfish/IPMI 实时采集，非在线主机回退为模拟数据。适用场景：用户问「DB-SH-01 的 CPU 温度是多少」「这台机器有几个风扇」「查一下 10.0.1.5 的磁盘信息」「电源功率使用情况」等。",
+        "description": "获取某台主机的 BMC 实时硬件状态信息，包括电源状态、整机健康、CPU温度、进风口温度、风扇列表（名称/转速/状态/数量）、内存详情（总量 + 每根 DIMM 的槽位/型号/序列号/容量/类型/状态）、磁盘列表（名称/型号/序列号/容量/介质类型/状态/数量）、电源模块列表（名称/当前功率/额定功率/状态/数量）、启动进度、告警列表等。数据来源于 BMC Redfish/IPMI 实时采集，非在线主机回退为模拟数据。适用场景：用户问「DB-SH-01 的 CPU 温度是多少」「这台机器有几根内存」「查一下 10.0.1.5 的内存配置」「硬盘和内存的详细信息」「电源功率使用情况」等。",
         "parameters": [
-          {"name": "identifier", "in": "query", "required": true, "schema": {"type": "string"}, "description": "主机名、SN序列号、资产编号或IP地址"}
+          {
+            "name": "identifier",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "主机名、SN序列号、资产编号或IP地址"
+          }
         ],
         "responses": {
           "200": {
@@ -276,74 +588,212 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "found": {"type": "boolean"},
-                    "message": {"type": "string"},
-                    "hostname": {"type": "string"},
-                    "sn": {"type": "string"},
-                    "assetTag": {"type": "string"},
-                    "manufacturer": {"type": "string"},
-                    "model": {"type": "string"},
-                    "status": {"type": "string"},
-                    "mgmtIp": {"type": "string"},
-                    "bizIp": {"type": "string"},
-                    "bmcProtocol": {"type": "string"},
-                    "source": {"type": "string", "description": "数据来源: live 或 simulated"},
-                    "collectedAt": {"type": "string", "description": "最近一次实时采集时间 ISO8601"},
-                    "power": {"type": "string", "enum": ["On", "Off"]},
-                    "health": {"type": "string", "enum": ["OK", "Warning", "Critical"]},
-                    "bootProgress": {"type": "string"},
-                    "cpuTempC": {"type": "number", "description": "CPU 温度（摄氏度）"},
-                    "inletTempC": {"type": "number", "description": "进风口温度（摄氏度）"},
-                    "fanCount": {"type": "integer"},
+                    "found": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    },
+                    "hostname": {
+                      "type": "string"
+                    },
+                    "sn": {
+                      "type": "string"
+                    },
+                    "assetTag": {
+                      "type": "string"
+                    },
+                    "manufacturer": {
+                      "type": "string"
+                    },
+                    "model": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string"
+                    },
+                    "mgmtIp": {
+                      "type": "string"
+                    },
+                    "bizIp": {
+                      "type": "string"
+                    },
+                    "bmcProtocol": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "string",
+                      "description": "数据来源: live 或 simulated"
+                    },
+                    "collectedAt": {
+                      "type": "string",
+                      "description": "最近一次实时采集时间 ISO8601"
+                    },
+                    "power": {
+                      "type": "string",
+                      "enum": [
+                        "On",
+                        "Off"
+                      ]
+                    },
+                    "health": {
+                      "type": "string",
+                      "enum": [
+                        "OK",
+                        "Warning",
+                        "Critical"
+                      ]
+                    },
+                    "bootProgress": {
+                      "type": "string"
+                    },
+                    "cpuTempC": {
+                      "type": "number",
+                      "description": "CPU 温度（摄氏度）"
+                    },
+                    "inletTempC": {
+                      "type": "number",
+                      "description": "进风口温度（摄氏度）"
+                    },
+                    "fanCount": {
+                      "type": "integer"
+                    },
                     "fans": {
                       "type": "array",
                       "items": {
                         "type": "object",
                         "properties": {
-                          "name": {"type": "string"},
-                          "rpm": {"type": "integer"},
-                          "status": {"type": "string"}
+                          "name": {
+                            "type": "string"
+                          },
+                          "rpm": {
+                            "type": "integer"
+                          },
+                          "status": {
+                            "type": "string"
+                          }
                         }
                       }
                     },
-                    "diskCount": {"type": "integer"},
+                    "memoryTotalGiB": {
+                      "type": "number",
+                      "description": "内存总量（GiB），来自 BMC MemorySummary"
+                    },
+                    "memoryModuleCount": {
+                      "type": "integer",
+                      "description": "DIMM 内存条数量"
+                    },
+                    "memoryModules": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "slot": {
+                            "type": "string",
+                            "description": "内存槽位（DeviceLocator），如 DIMM_A1"
+                          },
+                          "model": {
+                            "type": "string",
+                            "description": "内存型号"
+                          },
+                          "sn": {
+                            "type": "string",
+                            "description": "序列号"
+                          },
+                          "capacityMiB": {
+                            "type": "integer",
+                            "description": "单根容量（MiB）"
+                          },
+                          "memoryType": {
+                            "type": "string",
+                            "description": "内存类型，如 DDR4 / DDR5"
+                          },
+                          "status": {
+                            "type": "string",
+                            "description": "健康状态"
+                          }
+                        }
+                      }
+                    },
+                    "diskCount": {
+                      "type": "integer"
+                    },
                     "disks": {
                       "type": "array",
                       "items": {
                         "type": "object",
                         "properties": {
-                          "name": {"type": "string"},
-                          "model": {"type": "string"},
-                          "sn": {"type": "string"},
-                          "capacityGB": {"type": "integer"},
-                          "mediaType": {"type": "string"},
-                          "status": {"type": "string"}
+                          "name": {
+                            "type": "string"
+                          },
+                          "model": {
+                            "type": "string"
+                          },
+                          "sn": {
+                            "type": "string"
+                          },
+                          "capacityGB": {
+                            "type": "integer"
+                          },
+                          "mediaType": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string"
+                          }
                         }
                       }
                     },
-                    "psuCount": {"type": "integer"},
+                    "psuCount": {
+                      "type": "integer"
+                    },
                     "psus": {
                       "type": "array",
                       "items": {
                         "type": "object",
                         "properties": {
-                          "name": {"type": "string"},
-                          "watts": {"type": "integer", "description": "当前输出功率（瓦）"},
-                          "capacityW": {"type": "integer", "description": "额定功率（瓦）"},
-                          "status": {"type": "string"}
+                          "name": {
+                            "type": "string"
+                          },
+                          "watts": {
+                            "type": "integer",
+                            "description": "当前输出功率（瓦）"
+                          },
+                          "capacityW": {
+                            "type": "integer",
+                            "description": "额定功率（瓦）"
+                          },
+                          "status": {
+                            "type": "string"
+                          }
                         }
                       }
                     },
-                    "alertCount": {"type": "integer"},
+                    "alertCount": {
+                      "type": "integer"
+                    },
                     "alerts": {
                       "type": "array",
                       "items": {
                         "type": "object",
                         "properties": {
-                          "id": {"type": "string"},
-                          "time": {"type": "string"},
-                          "level": {"type": "string", "enum": ["OK", "Warning", "Critical"]},
-                          "message": {"type": "string"}
+                          "id": {
+                            "type": "string"
+                          },
+                          "time": {
+                            "type": "string"
+                          },
+                          "level": {
+                            "type": "string",
+                            "enum": [
+                              "OK",
+                              "Warning",
+                              "Critical"
+                            ]
+                          },
+                          "message": {
+                            "type": "string"
+                          }
                         }
                       }
                     }
