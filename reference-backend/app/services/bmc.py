@@ -254,16 +254,23 @@ async def _redfish_storage_drives(
     client: httpx.AsyncClient, base: str, system_path: str
 ) -> list[dict]:
     """Discover drives under ``/Systems/X/Storage``, with fallback to
-    ``SimpleStorage`` for older BMCs (Dell iDRAC 8 and earlier)."""
+    ``SimpleStorage`` for older BMCs (Dell iDRAC 8 and earlier), and
+    ``/Chassis/X/Drives`` for XFusion / H3C / other vendors that expose
+    drives at the chassis level instead of under Systems/Storage."""
     drives: list[dict] = []
     try:
+        # Path 1: modern Storage schema (Dell iDRAC 9+, Supermicro X11+, etc.)
         drives = await _redfish_storage_modern(client, base, system_path)
         if drives:
             return drives
-        # Fallback: older Dell iDRAC (8 and earlier) exposes drives via
-        # SimpleStorage with inline device descriptions instead of
-        # separate Drive resources.
+        # Path 2: SimpleStorage (older Dell iDRAC 8, HPE iLO 4)
         drives = await _redfish_storage_simple(client, base, system_path)
+        if drives:
+            return drives
+        # Path 3: Chassis-level Drives (XFusion, H3C, and other vendors where
+        # /Systems/X/Storage returns 404 but /Chassis/X/Drives contains the
+        # full drive collection).
+        drives = await _redfish_chassis_drives(client, base)
     except Exception:
         pass  # Storage isn't critical — keep returning what we have
     return drives
@@ -343,6 +350,50 @@ async def _redfish_storage_simple(
                     "status": ((dev.get("Status") or {}).get("Health")) or "OK",
                 }
             )
+    return drives
+
+
+async def _redfish_chassis_drives(
+    client: httpx.AsyncClient, base: str
+) -> list[dict]:
+    """Discover drives via ``/Chassis/X/Drives``.
+
+    Some vendors (XFusion, H3C, etc.) expose drives at the chassis level
+    instead of under ``/Systems/X/Storage``. The drive schema is the same
+    standard Redfish ``#Drive`` resource so we reuse the same field mapping.
+    """
+    drives: list[dict] = []
+    chassis_path = await _redfish_first_member(client, base, "Chassis")
+    if not chassis_path:
+        return drives
+    try:
+        coll = await client.get(f"{base}/{chassis_path}/Drives")
+        if coll.status_code != 200:
+            return drives
+        members = (coll.json() or {}).get("Members") or []
+        for m in members:
+            href = m.get("@odata.id")
+            if not href:
+                continue
+            dr = await client.get(f"{base}{href}")
+            if dr.status_code != 200:
+                continue
+            d = dr.json() or {}
+            cap_bytes = d.get("CapacityBytes") or 0
+            drives.append(
+                {
+                    "name": d.get("Name") or d.get("Id") or "?",
+                    "model": d.get("Model") or "—",
+                    "sn": d.get("SerialNumber") or None,
+                    "capacityGB": (
+                        round(cap_bytes / (1024**3), 0) if cap_bytes else 0
+                    ),
+                    "mediaType": d.get("MediaType") or "—",
+                    "status": ((d.get("Status") or {}).get("Health")) or "OK",
+                }
+            )
+    except Exception:
+        pass
     return drives
 
 
