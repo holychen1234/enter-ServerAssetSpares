@@ -63,7 +63,7 @@ import {
   ChevronRight,
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
-import { exportToCsv, exportToExcel, downloadBlob } from "@/lib/import-export";
+import { exportWorkstationsToCsv, exportWorkstationsToExcel, downloadBlob } from "@/lib/import-export";
 
 type SortField = "hostname" | "status" | "os";
 type SortOrder = "asc" | "desc";
@@ -251,13 +251,13 @@ export default function WorkstationList() {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem onClick={() => {
-                      const blob = exportToCsv(filtered, "workstation");
+                      const blob = exportWorkstationsToCsv(filtered);
                       downloadBlob(blob, `终端PC_${new Date().toISOString().slice(0, 10)}.csv`);
                     }}>
                       导出 CSV
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => {
-                      const blob = exportToExcel(filtered, "workstation");
+                      const blob = exportWorkstationsToExcel(filtered);
                       downloadBlob(blob, `终端PC_${new Date().toISOString().slice(0, 10)}.xlsx`);
                     }}>
                       导出 Excel

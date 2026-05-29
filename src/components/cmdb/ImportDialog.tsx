@@ -32,23 +32,29 @@ import {
   importRowToPayload,
   parseNetworkDeviceImportFile,
   networkDeviceImportRowToPayload,
+  parseWorkstationImportFile,
+  workstationImportRowToPayload,
   generateTemplate,
   generateNetworkDeviceTemplate,
+  generateWorkstationTemplate,
   downloadBlob,
   type ImportResult,
 } from "@/lib/import-export";
-import { createServer, createNetworkDevice } from "@/lib/api/cmdb";
+import { createServer, createNetworkDevice, createWorkstation } from "@/lib/api/cmdb";
 
-type AssetType = "server" | "networkDevice";
+type AssetType = "server" | "networkDevice" | "workstation";
 
 interface Props {
   open: boolean;
   onClose: () => void;
   onImported: () => void;
   type?: AssetType;
+  /** 别名，兼容旧调用方 */
+  entityType?: AssetType;
 }
 
-export function ImportDialog({ open, onClose, onImported, type = "server" }: Props) {
+export function ImportDialog({ open, onClose, onImported, type, entityType }: Props) {
+  const resolvedType: AssetType = entityType ?? type ?? "server";
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<"upload" | "preview" | "importing" | "done">("upload");
   const [result, setResult] = useState<ImportResult | null>(null);
@@ -56,9 +62,10 @@ export function ImportDialog({ open, onClose, onImported, type = "server" }: Pro
   const [importErrors, setImportErrors] = useState<string[]>([]);
   const [dragOver, setDragOver] = useState(false);
 
-  const isNdev = type === "networkDevice";
-  const title = isNdev ? "网络设备" : "服务器";
-  const labelName = isNdev ? "设备名" : "服务器名";
+  const isNdev = resolvedType === "networkDevice";
+  const isWks = resolvedType === "workstation";
+  const title = isNdev ? "网络设备" : isWks ? "终端PC" : "服务器";
+  const labelName = isNdev ? "设备名" : isWks ? "计算机名" : "服务器名";
 
   const reset = () => {
     setStep("upload");
@@ -74,7 +81,7 @@ export function ImportDialog({ open, onClose, onImported, type = "server" }: Pro
 
   const handleFile = useCallback(async (file: File) => {
     try {
-      const parseFn = isNdev ? parseNetworkDeviceImportFile : parseImportFile;
+      const parseFn = isNdev ? parseNetworkDeviceImportFile : isWks ? parseWorkstationImportFile : parseImportFile;
       const r = await parseFn(file);
       if (r.rows.length === 0) {
         toast({ title: "文件为空", description: "未检测到有效数据行" });
@@ -91,7 +98,7 @@ export function ImportDialog({ open, onClose, onImported, type = "server" }: Pro
         variant: "destructive",
       });
     }
-  }, [isNdev]);
+  }, [isNdev, isWks]);
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -128,8 +135,8 @@ export function ImportDialog({ open, onClose, onImported, type = "server" }: Pro
     setImportingProgress({ done: 0, total: valid.length });
     setImportErrors([]);
 
-    const toPayload = isNdev ? networkDeviceImportRowToPayload : importRowToPayload;
-    const createFn = isNdev ? createNetworkDevice : createServer;
+    const toPayload = isNdev ? networkDeviceImportRowToPayload : isWks ? workstationImportRowToPayload : importRowToPayload;
+    const createFn = isNdev ? createNetworkDevice : isWks ? createWorkstation : createServer;
 
     let ok = 0;
     const errs: string[] = [];
@@ -157,10 +164,10 @@ export function ImportDialog({ open, onClose, onImported, type = "server" }: Pro
   };
 
   const downloadTemplate = (format: "csv" | "xlsx") => {
-    const genFn = isNdev ? generateNetworkDeviceTemplate : generateTemplate;
+    const genFn = isNdev ? generateNetworkDeviceTemplate : isWks ? generateWorkstationTemplate : generateTemplate;
     const blob = genFn(format);
     const ext = format === "csv" ? "csv" : "xlsx";
-    downloadBlob(blob, `${title}资产导入模板.${ext}`);
+    downloadBlob(blob, `${title}导入模板.${ext}`);
   };
 
   return (
