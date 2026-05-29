@@ -37,23 +37,27 @@ def verify_api_key(
 
 # 厂商中英文映射，支持用户用中文名查询
 MANUFACTURER_ALIASES: dict[str, str] = {
-    "戴尔": "Dell",
-    "dell": "Dell",
-    "惠普": "HPE",
-    "hpe": "HPE",
-    "h3c": "HPE",
-    "联想": "Lenovo",
-    "lenovo": "Lenovo",
-    "浪潮": "Inspur",
-    "inspur": "Inspur",
-    "超微": "Supermicro",
-    "supermicro": "Supermicro",
-    "华为": "Huawei",
-    "huawei": "Huawei",
-    "超聚变": "XFusion",
-    "xfusion": "XFusion",
-    "其他": "Other",
-    "other": "Other",
+    # 服务器厂商
+    "戴尔": "Dell", "dell": "Dell",
+    "惠普": "HPE", "hpe": "HPE", "h3c": "HPE",
+    "联想": "Lenovo", "lenovo": "Lenovo",
+    "浪潮": "Inspur", "inspur": "Inspur",
+    "超微": "Supermicro", "supermicro": "Supermicro",
+    "华为": "Huawei", "huawei": "Huawei",
+    "超聚变": "XFusion", "xfusion": "XFusion",
+    # 网络设备厂商
+    "思科": "Cisco", "cisco": "Cisco",
+    "华三": "H3C",
+    "arista": "Arista",
+    "瞻博": "Juniper", "juniper": "Juniper",
+    "锐捷": "Ruijie", "ruijie": "Ruijie",
+    # 终端PC厂商
+    "hp": "HP",
+    "苹果": "Apple", "apple": "Apple",
+    "华硕": "ASUS", "asus": "ASUS",
+    "宏碁": "Acer", "acer": "Acer",
+    "微软": "Microsoft", "microsoft": "Microsoft",
+    "其他": "Other", "other": "Other",
 }
 
 def _normalize_manufacturer(raw: str) -> str | None:
@@ -96,6 +100,38 @@ def _part_brief(p) -> dict:
         "unit": p.unit,
         "location": p.location,
         "status": p.status,
+    }
+
+
+def _network_device_brief(d) -> dict:
+    """Compact network device view for list results."""
+    return {
+        "hostname": d.hostname,
+        "sn": d.sn,
+        "assetTag": d.asset_tag,
+        "deviceType": d.device_type,
+        "manufacturer": d.manufacturer,
+        "model": d.model,
+        "mgmtIp": d.mgmt_ip,
+        "bizIp": d.biz_ip or "",
+        "status": d.status,
+        "idc": d.idc,
+    }
+
+
+def _workstation_brief(w) -> dict:
+    """Compact workstation view for list results."""
+    return {
+        "hostname": w.hostname,
+        "sn": w.sn,
+        "assetTag": w.asset_tag,
+        "manufacturer": w.manufacturer,
+        "model": w.model,
+        "os": w.os,
+        "bizIp": w.biz_ip or "",
+        "userName": w.user_name or "",
+        "department": w.department or "",
+        "status": w.status,
     }
 
 
@@ -417,22 +453,32 @@ def search_network_devices(
     rows = q.order_by(NetworkDevice.hostname).limit(limit).all()
     return {
         "count": len(rows),
-        "items": [
-            {
-                "hostname": d.hostname,
-                "sn": d.sn,
-                "assetTag": d.asset_tag,
-                "deviceType": d.device_type,
-                "manufacturer": d.manufacturer,
-                "model": d.model,
-                "mgmtIp": d.mgmt_ip,
-                "bizIp": d.biz_ip or "",
-                "status": d.status,
-                "idc": d.idc,
-            }
-            for d in rows
-        ],
+        "items": [_network_device_brief(d) for d in rows],
     }
+
+
+@router.get("/get-network-device-detail")
+def get_network_device_detail(
+    identifier: str = Query(..., description="设备名、SN序列号、资产编号或管理IP地址"),
+    db: Session = Depends(get_db),
+    _: None = Depends(verify_api_key),
+):
+    """获取单台网络设备完整信息。Aily use this when user asks for detailed
+    info about a specific switch, router, firewall, or load balancer.
+    identifier can be hostname, SN, asset tag, or management IP."""
+    d = (
+        db.query(NetworkDevice)
+        .filter(
+            (NetworkDevice.hostname == identifier)
+            | (NetworkDevice.sn == identifier)
+            | (NetworkDevice.asset_tag == identifier)
+            | (NetworkDevice.mgmt_ip == identifier)
+        )
+        .first()
+    )
+    if not d:
+        return {"found": False, "message": f"未找到网络设备: {identifier}"}
+    return {"found": True, **network_device_to_dict(d)}
 
 
 @router.get("/search-workstations")
@@ -477,22 +523,32 @@ def search_workstations(
     rows = q.order_by(Workstation.hostname).limit(limit).all()
     return {
         "count": len(rows),
-        "items": [
-            {
-                "hostname": w.hostname,
-                "sn": w.sn,
-                "assetTag": w.asset_tag,
-                "manufacturer": w.manufacturer,
-                "model": w.model,
-                "os": w.os,
-                "bizIp": w.biz_ip or "",
-                "userName": w.user_name or "",
-                "department": w.department or "",
-                "status": w.status,
-            }
-            for w in rows
-        ],
+        "items": [_workstation_brief(w) for w in rows],
     }
+
+
+@router.get("/get-workstation-detail")
+def get_workstation_detail(
+    identifier: str = Query(..., description="计算机名、SN序列号、资产编号或IP地址"),
+    db: Session = Depends(get_db),
+    _: None = Depends(verify_api_key),
+):
+    """获取单台终端PC完整信息。Aily use this when user asks for detailed
+    info about a specific workstation, desktop, or laptop.
+    identifier can be hostname, SN, asset tag, or IP address."""
+    w = (
+        db.query(Workstation)
+        .filter(
+            (Workstation.hostname == identifier)
+            | (Workstation.sn == identifier)
+            | (Workstation.asset_tag == identifier)
+            | (Workstation.biz_ip == identifier)
+        )
+        .first()
+    )
+    if not w:
+        return {"found": False, "message": f"未找到终端PC: {identifier}"}
+    return {"found": True, **workstation_to_dict(w)}
 
 
 # ── OpenAPI schema (no auth — Dify needs to fetch it for import) ─
