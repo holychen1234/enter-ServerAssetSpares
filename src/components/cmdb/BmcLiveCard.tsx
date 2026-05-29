@@ -60,6 +60,12 @@ function healthColor(h: string) {
   return "bg-danger/10 text-danger border-danger/30";
 }
 
+/** Format MiB → human-readable (GiB when ≥ 1 GiB, else MiB). */
+function formatMemorySize(mib: number): string {
+  if (mib >= 1024) return `${(mib / 1024).toFixed(0)} GiB`;
+  return `${mib} MiB`;
+}
+
 export function BmcLiveCard({ status, loading, itemSnMap }: Props) {
   return (
     <div className="grid gap-4 lg:grid-cols-3">
@@ -151,6 +157,11 @@ export function BmcLiveCard({ status, loading, itemSnMap }: Props) {
                   {status.memorySummary.totalGiB}
                 </span>
                 <span className="text-sm text-muted-foreground">GiB</span>
+                {status.memoryModules && status.memoryModules.length > 0 && (
+                  <span className="ml-2 text-xs text-muted-foreground">
+                    · {status.memoryModules.length} 根 DIMM
+                  </span>
+                )}
               </div>
             </div>
           ) : (
@@ -269,7 +280,67 @@ export function BmcLiveCard({ status, loading, itemSnMap }: Props) {
         </Card>
       )}
 
-      {/* ===== Row 3: Fans + PSU ===== */}
+      {/* ===== Row 3: Memory DIMM Details (full width) ===== */}
+      {status.memoryModules && status.memoryModules.length > 0 && (
+        <Card className="lg:col-span-3 shadow-card-soft">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <MemoryIcon className="h-4 w-4 text-primary" /> 内存 DIMM
+              <span className="text-xs font-normal text-muted-foreground">
+                共 {status.memoryModules.length} 根
+                {status.memorySummary && (
+                  <span className="ml-1">
+                    · 合计 {status.memorySummary.totalGiB} GiB
+                  </span>
+                )}
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="divide-y divide-border">
+              {status.memoryModules.map((dim) => (
+                <div
+                  key={dim.slot}
+                  className="flex items-center gap-4 px-6 py-3"
+                >
+                  <span
+                    className={
+                      "inline-block rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wider " +
+                      healthColor(dim.status)
+                    }
+                  >
+                    {dim.status}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline gap-2">
+                      <span className="font-mono text-sm font-medium text-foreground">
+                        {dim.slot}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {dim.memoryType}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {dim.model}
+                      {dim.sn && (
+                        <span className="ml-2 font-mono text-[10px]">
+                          SN:{" "}
+                          <span className="text-primary">{dim.sn}</span>
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                  <div className="text-right font-mono text-sm font-medium text-foreground">
+                    {formatMemorySize(dim.capacityMiB)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ===== Row 4: Fans + PSU ===== */}
 
       <Card className="lg:col-span-2 shadow-card-soft">
         <CardHeader className="pb-3">
@@ -315,7 +386,7 @@ export function BmcLiveCard({ status, loading, itemSnMap }: Props) {
         </CardContent>
       </Card>
 
-      {/* ===== Row 4: Recent BMC Logs (full width) ===== */}
+      {/* ===== Row 5: Recent BMC Logs (full width) ===== */}
       {status.recentLogs && status.recentLogs.length > 0 && (
         <Card className="lg:col-span-3 shadow-card-soft">
           <CardHeader className="pb-3">
@@ -351,7 +422,7 @@ export function BmcLiveCard({ status, loading, itemSnMap }: Props) {
         </Card>
       )}
 
-      {/* ===== Row 5: Alerts ===== */}
+      {/* ===== Row 6: Alerts ===== */}
       {status.alerts.length > 0 && (
         <Card className="lg:col-span-3 shadow-card-soft border-warning/40">
           <CardHeader className="pb-3">
