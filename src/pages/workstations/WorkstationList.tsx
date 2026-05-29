@@ -251,13 +251,13 @@ export default function WorkstationList() {
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem onClick={() => {
-                      const blob = exportToCsv(filtered);
+                      const blob = exportToCsv(filtered, "workstation");
                       downloadBlob(blob, `终端PC_${new Date().toISOString().slice(0, 10)}.csv`);
                     }}>
                       导出 CSV
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => {
-                      const blob = exportToExcel(filtered);
+                      const blob = exportToExcel(filtered, "workstation");
                       downloadBlob(blob, `终端PC_${new Date().toISOString().slice(0, 10)}.xlsx`);
                     }}>
                       导出 Excel
@@ -558,6 +558,7 @@ export default function WorkstationList() {
         open={importOpen}
         onClose={() => setImportOpen(false)}
         onImported={() => queryClient.invalidateQueries({ queryKey: ["workstations"] })}
+        entityType="workstation"
       />
     </div>
   );
