@@ -15,8 +15,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let mounted = true;
 
-    // Subscribe FIRST, then check session — for cloud this hooks Supabase auth
-    // events, for internal it's a no-op.
+    // Subscribe to auth state changes — for token expiry detection.
     const unsubscribe = subscribeAuthChanges((hasSession) => {
       if (!mounted) return;
       if (!hasSession) {
