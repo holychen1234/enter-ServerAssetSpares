@@ -191,6 +191,7 @@ def _simulate(server: Server) -> dict:
             if mem_gb > 0
             else None
         ),
+        "memoryModules": [],
         "drives": drives,
         "recentLogs": recent_logs,
     }
@@ -397,6 +398,46 @@ async def _redfish_chassis_drives(
     return drives
 
 
+async def _redfish_memory_dims(
+    client: httpx.AsyncClient, base: str, system_path: str
+) -> list[dict]:
+    """Discover individual DIMMs under ``/Systems/X/Memory``.
+
+    Returns a list of DIMM descriptors with slot, model, serial number,
+    capacity, memory type, and health status — similar to the drives list
+    so the frontend can show a detailed per-slot table.
+    """
+    dims: list[dict] = []
+    try:
+        coll = await client.get(f"{base}/{system_path}/Memory")
+        if coll.status_code != 200:
+            return dims
+        members = (coll.json() or {}).get("Members") or []
+        for m in members:
+            href = m.get("@odata.id")
+            if not href:
+                continue
+            r = await client.get(f"{base}{href}")
+            if r.status_code != 200:
+                continue
+            d = r.json() or {}
+            loc = d.get("DeviceLocator") or d.get("Name") or d.get("Id") or "?"
+            capacity_mib = d.get("CapacityMiB") or 0
+            dims.append(
+                {
+                    "slot": loc,
+                    "model": d.get("Model") or d.get("Manufacturer") or "—",
+                    "sn": d.get("SerialNumber") or None,
+                    "capacityMiB": capacity_mib,
+                    "memoryType": d.get("MemoryDeviceType") or "—",
+                    "status": ((d.get("Status") or {}).get("Health")) or "OK",
+                }
+            )
+    except Exception:
+        pass  # Memory detail isn't critical
+    return dims
+
+
 async def _redfish_recent_logs(
     client: httpx.AsyncClient, base: str
 ) -> list[dict]:
@@ -522,12 +563,13 @@ async def _collect_redfish(server: Server) -> dict | None:
                     )
                     return None
 
-                thermal_res, power_res, system_res, drives, logs = (
+                thermal_res, power_res, system_res, drives, mem_modules, logs = (
                     await asyncio.gather(
                         client.get(f"{base}/{chassis_path}/Thermal"),
                         client.get(f"{base}/{chassis_path}/Power"),
                         client.get(f"{base}/{system_path}"),
                         _redfish_storage_drives(client, base, system_path),
+                        _redfish_memory_dims(client, base, system_path),
                         _redfish_recent_logs(client, base),
                     )
                 )
@@ -625,6 +667,7 @@ async def _collect_redfish(server: Server) -> dict | None:
                     "_powerWatts": consumed_w,
                     "processorSummary": processor,
                     "memorySummary": memory,
+                    "memoryModules": mem_modules or None,
                     "drives": drives or None,
                     "recentLogs": logs or None,
                 }

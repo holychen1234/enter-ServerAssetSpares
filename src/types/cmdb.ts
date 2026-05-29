@@ -206,6 +206,15 @@ export interface BmcStatus {
   processorSummary?: { count: number; model: string };
   /** Memory summary from BMC (Redfish MemorySummary). */
   memorySummary?: { totalGiB: number };
+  /** Individual DIMM modules discovered via Redfish /Systems/X/Memory. */
+  memoryModules?: {
+    slot: string;
+    model: string;
+    sn?: string;
+    capacityMiB: number;
+    memoryType: string;
+    status: string;
+  }[];
   /** Storage drives discovered via Redfish. */
   drives?: {
     name: string;
