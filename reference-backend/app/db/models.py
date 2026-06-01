@@ -258,3 +258,29 @@ class AuditLog(Base):
         default="info",
     )
     created_at = Column(DateTime, default=_utc_now, nullable=False)
+
+
+class BmcSnapshot(Base):
+    """Persisted BMC live-status snapshot — collected once per day or on manual
+    refresh, so the UI never falls back to simulated data."""
+    __tablename__ = "bmc_snapshots"
+    id = Column(CHAR(36), primary_key=True)
+    server_id = Column(
+        CHAR(36), ForeignKey("servers.id", ondelete="CASCADE"), nullable=False
+    )
+    collected_at = Column(DateTime, default=_utc_now, nullable=False)
+    source = Column(String(16), nullable=False, default="live")
+    protocol = Column(String(16), nullable=True)
+    power = Column(String(8), nullable=True)
+    health = Column(String(16), nullable=True)
+    cpu_temp_c = Column(Integer, nullable=True)
+    inlet_temp_c = Column(Integer, nullable=True)
+    processor_summary = Column(JSON, nullable=True)
+    memory_summary = Column(JSON, nullable=True)
+    memory_modules = Column(JSON, nullable=True)
+    drives = Column(JSON, nullable=True)
+    fans = Column(JSON, nullable=True)
+    psus = Column(JSON, nullable=True)
+    recent_logs = Column(JSON, nullable=True)
+    history = Column(JSON, nullable=True)
+    alerts = Column(JSON, nullable=True)

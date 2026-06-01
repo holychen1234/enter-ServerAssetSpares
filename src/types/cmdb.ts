@@ -202,6 +202,8 @@ export interface BmcStatus {
   updatedAt: string;
   /** Last time a real (non-simulated) sample was collected. */
   collectedAt?: string;
+  /** Last time a snapshot was persisted to the database (ISO 8601). */
+  lastCollectedAt?: string | null;
   /** CPU summary from BMC (Redfish ProcessorSummary). */
   processorSummary?: { count: number; model: string };
   /** Memory summary from BMC (Redfish MemorySummary). */

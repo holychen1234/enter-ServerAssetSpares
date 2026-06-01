@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     redfish_default_base: str = "http://redfish-mock:8000"
     redfish_timeout_seconds: int = 15
 
-    poll_interval_seconds: int = 60
+    poll_interval_seconds: int = 86400  # 24 hours — hardware data changes rarely
 
     ai_api_key: str = ""
 

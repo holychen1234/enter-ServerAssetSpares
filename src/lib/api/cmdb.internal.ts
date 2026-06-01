@@ -120,6 +120,10 @@ export async function getBmcStatus(
   return api<BmcStatus>(`/servers/${serverId}/bmc${qs}`);
 }
 
+export async function refreshBmcStatus(serverId: string): Promise<BmcStatus> {
+  return api<BmcStatus>(`/servers/${serverId}/bmc/refresh`, { method: "POST" });
+}
+
 // ---------- Network Devices ----------
 export async function listNetworkDevices(): Promise<NetworkDevice[]> {
   return api<NetworkDevice[]>("/network-devices");

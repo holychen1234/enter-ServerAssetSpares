@@ -8,6 +8,7 @@ export {
   deleteServer,
   batchDeleteServers,
   getBmcStatus,
+  refreshBmcStatus,
   listNetworkDevices,
   getNetworkDevice,
   createNetworkDevice,

@@ -12,9 +12,9 @@ from app.settings import settings
 
 
 async def _poll_all():
-    """Background poller — drives the in-memory history ring buffer for
-    every online server so the trend chart has data even if no operator
-    has opened the detail page yet."""
+    """Daily background poller — collects BMC data for every online server
+    and persists a snapshot to the database.  Runs once every 24 hours so
+    the UI always has fresh-enough data without hammering the BMC."""
     import asyncio as _asyncio
     import logging as _logging
     _log = _logging.getLogger("bmc.poll")
@@ -25,12 +25,10 @@ async def _poll_all():
         if not servers:
             return
 
-        # Poll all servers in parallel with a per-server timeout so a single
-        # slow / unreachable BMC never blocks the whole batch.
         async def _poll_one(s):
             try:
                 await _asyncio.wait_for(
-                    bmc_svc.get_status(s, force_refresh=True),
+                    bmc_svc.collect_and_save(s),
                     timeout=settings.redfish_timeout_seconds + 10,
                 )
             except _asyncio.TimeoutError:

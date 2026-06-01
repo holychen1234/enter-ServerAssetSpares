@@ -43,7 +43,8 @@ from typing import Any
 
 import httpx
 
-from app.db.models import Server
+from app.db.models import BmcSnapshot, Server
+from app.db.base import SessionLocal
 from app.settings import settings
 
 logger = logging.getLogger("bmc")
@@ -928,3 +929,86 @@ def invalidate_cache(server_id: str | None = None) -> None:
         _status_cache.clear()
     else:
         _status_cache.pop(server_id, None)
+
+
+# ---------------------------------------------------------------------------
+# Persistence layer — store BMC snapshots in DB so the UI never shows
+# simulated data and we don't hammer the BMC more than once per day.
+# ---------------------------------------------------------------------------
+async def collect_and_save(server: Server) -> BmcSnapshot | None:
+    """Poll the BMC once, persist the result to the database, and return the
+    snapshot row.  Returns None when the BMC is unreachable."""
+    payload = await get_status(server, force_refresh=True)
+    if payload.get("source") != "live":
+        logger.info("bmc snapshot skipped for %s — source=%s", server.id, payload.get("source"))
+        return None
+
+    db = SessionLocal()
+    try:
+        snap = BmcSnapshot(
+            id=str(uuid.uuid4()),
+            server_id=server.id,
+            source=payload.get("source", "live"),
+            protocol=payload.get("protocol"),
+            power=payload.get("power"),
+            health=payload.get("health"),
+            cpu_temp_c=int(payload["cpuTempC"]) if isinstance(payload.get("cpuTempC"), (int, float)) else None,
+            inlet_temp_c=int(payload["inletTempC"]) if isinstance(payload.get("inletTempC"), (int, float)) else None,
+            processor_summary=payload.get("processorSummary"),
+            memory_summary=payload.get("memorySummary"),
+            memory_modules=payload.get("memoryModules"),
+            drives=payload.get("drives"),
+            fans=payload.get("fans"),
+            psus=payload.get("psus"),
+            recent_logs=payload.get("recentLogs"),
+            history=payload.get("history"),
+            alerts=payload.get("alerts"),
+        )
+        db.add(snap)
+        db.commit()
+        db.refresh(snap)
+        return snap
+    except Exception:
+        db.rollback()
+        logger.exception("bmc snapshot save failed for %s", server.id)
+        return None
+    finally:
+        db.close()
+
+
+def get_latest_snapshot(server_id: str) -> BmcSnapshot | None:
+    """Return the most recent snapshot for a server, or None."""
+    db = SessionLocal()
+    try:
+        return (
+            db.query(BmcSnapshot)
+            .filter(BmcSnapshot.server_id == server_id)
+            .order_by(BmcSnapshot.collected_at.desc())
+            .first()
+        )
+    finally:
+        db.close()
+
+
+def snapshot_to_status(snap: BmcSnapshot) -> dict:
+    """Convert a persisted snapshot back to the frontend BmcStatus shape."""
+    return {
+        "serverId": snap.server_id,
+        "source": snap.source,
+        "protocol": snap.protocol,
+        "power": snap.power,
+        "health": snap.health,
+        "cpuTempC": snap.cpu_temp_c or 0,
+        "inletTempC": snap.inlet_temp_c or 0,
+        "processorSummary": snap.processor_summary,
+        "memorySummary": snap.memory_summary,
+        "memoryModules": snap.memory_modules or [],
+        "drives": snap.drives or [],
+        "fans": snap.fans or [],
+        "psus": snap.psus or [],
+        "recentLogs": snap.recent_logs or [],
+        "history": snap.history or [],
+        "alerts": snap.alerts or [],
+        "updatedAt": snap.collected_at.isoformat() if snap.collected_at else "",
+        "bootProgress": "OSBootCompleted",
+    }

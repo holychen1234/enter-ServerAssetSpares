@@ -36,6 +36,7 @@ interface Props {
 
 function SourceBadge({ status }: { status: BmcStatus }) {
   const isLive = status.source === "live";
+  const isSnapshot = !!status.lastCollectedAt;
   return (
     <Badge
       variant={isLive ? "default" : "secondary"}
@@ -45,8 +46,8 @@ function SourceBadge({ status }: { status: BmcStatus }) {
           : "gap-1 bg-warning/15 text-warning hover:bg-warning/20"
       }
     >
-      <Radio className={`h-3 w-3 ${isLive ? "animate-pulse" : ""}`} />
-      {isLive ? "BMC 实时" : "模拟数据"}
+      <Radio className={`h-3 w-3 ${isLive && !isSnapshot ? "animate-pulse" : ""}`} />
+      {isSnapshot ? "持久快照" : isLive ? "BMC 实时" : "模拟数据"}
       <span className="ml-1 text-[10px] uppercase opacity-70">
         {status.protocol}
       </span>
@@ -117,11 +118,12 @@ export function BmcLiveCard({ status, loading, itemSnMap }: Props) {
             <Progress value={Math.min(100, status.inletTempC * 2)} className="h-2" />
           </div>
           <div className="border-t border-border pt-3 text-[11px] text-muted-foreground">
-            最后更新：{new Date(status.updatedAt).toLocaleTimeString()}
-            {status.collectedAt && status.source === "live" && (
-              <>
-                {" · "}采集于：{new Date(status.collectedAt).toLocaleTimeString()}
-              </>
+            {status.lastCollectedAt ? (
+              <>最近采集：{new Date(status.lastCollectedAt).toLocaleString()}</>
+            ) : status.source === "live" ? (
+              <>实时数据 · {new Date(status.updatedAt).toLocaleTimeString()}</>
+            ) : (
+              <>模拟数据 · {new Date(status.updatedAt).toLocaleTimeString()}</>
             )}
           </div>
         </CardContent>
