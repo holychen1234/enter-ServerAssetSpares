@@ -313,7 +313,16 @@ async def get_server_disks(
     if not s:
         return {"found": False, "message": f"未找到主机: {identifier}"}
 
-    status = await bmc_svc.get_status(s)
+    snap = bmc_svc.get_latest_snapshot(s.id)
+    if snap:
+        status = bmc_svc.snapshot_to_status(snap)
+    else:
+        # No snapshot yet — fetch live now and persist so future queries are instant.
+        snap = await bmc_svc.collect_and_save(s)
+        if snap:
+            status = bmc_svc.snapshot_to_status(snap)
+        else:
+            status = {"drives": [], "source": "unreachable"}
     drives = status.get("drives") or []
 
     return {
@@ -336,7 +345,7 @@ async def get_server_bmc_status(
     """获取主机 BMC 实时状态。包括 CPU 温度、风扇状态/转速/数量、磁盘型号/
     序列号/容量/状态、内存 DIMM 详情（槽位/型号/序列号/容量/类型/状态）/
     总量、电源功率/数量/状态、整机健康状态等。
-    数据来源于 BMC Redfish/IPMI 实时采集，非在线主机回退为模拟数据。"""
+    优先读取每日快照（毫秒级响应），无快照时自动实时采集并存库。"""
     s = (
         db.query(Server)
         .filter(
@@ -351,7 +360,15 @@ async def get_server_bmc_status(
     if not s:
         return {"found": False, "message": f"未找到主机: {identifier}"}
 
-    status = await bmc_svc.get_status(s)
+    snap = bmc_svc.get_latest_snapshot(s.id)
+    if not snap:
+        snap = await bmc_svc.collect_and_save(s)
+    if snap:
+        status = bmc_svc.snapshot_to_status(snap)
+    else:
+        status = {"source": "unreachable", "drives": [], "memoryModules": [],
+                  "fans": [], "psus": [], "recentLogs": [], "alerts": [],
+                  "history": [], "updatedAt": ""}
 
     return {
         "found": True,
