@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173"
 
     redfish_default_base: str = "http://redfish-mock:8000"
-    redfish_timeout_seconds: int = 15
+    redfish_timeout_seconds: int = 30  # per-request timeout; parallel fetch needs headroom
 
     poll_interval_seconds: int = 86400  # 24 hours — hardware data changes rarely
 
