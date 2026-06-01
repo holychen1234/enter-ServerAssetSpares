@@ -53,6 +53,10 @@ CACHE_TTL_SECONDS = 30
 HISTORY_MAX_POINTS = 12
 HISTORY_INTERVAL_LABEL = "5m"  # purely cosmetic — used for x-axis ticks
 
+# Limit concurrent HTTP requests to a single BMC so we don't overwhelm
+# its management controller (many BMCs cap at 4–8 simultaneous sessions).
+_BMC_SEMAPHORE = asyncio.Semaphore(6)
+
 
 # ---------------------------------------------------------------------------
 # In-memory state (per process). For a single-replica on-prem deployment
@@ -285,7 +289,11 @@ async def _redfish_storage_drives(
 async def _redfish_storage_modern(
     client: httpx.AsyncClient, base: str, system_path: str
 ) -> list[dict]:
-    """Redfish Storage schema (iDRAC 9+, Supermicro X11+, etc.)."""
+    """Redfish Storage schema (iDRAC 9+, Supermicro X11+, etc.).
+
+    Controllers and drives are fetched in parallel to stay within the
+    per-request timeout window even on BMCs with many drives (e.g. Inspur
+    with 9+ drives behind a single PCIE2_RAID controller)."""
     drives: list[dict] = []
     try:
         storage_coll = await client.get(f"{base}/{system_path}/Storage")
@@ -294,41 +302,67 @@ async def _redfish_storage_modern(
     if storage_coll.status_code != 200:
         return drives
     members = (storage_coll.json() or {}).get("Members") or []
-    for m in members:
-        storage_href = m.get("@odata.id")
-        if not storage_href:
-            continue
+
+    # ── Phase 1: fetch every controller in parallel to collect drive hrefs ──
+    async def _controller_drive_hrefs(m) -> list[str]:
+        hrefs: list[str] = []
+        ctrl_href = m.get("@odata.id")
+        if not ctrl_href:
+            return hrefs
         try:
-            storage_res = await client.get(f"{base}{storage_href}")
+            async with _BMC_SEMAPHORE:
+                r = await client.get(f"{base}{ctrl_href}")
         except Exception:
-            continue
-        if storage_res.status_code != 200:
-            continue
-        storage: dict = storage_res.json() or {}
+            return hrefs
+        if r.status_code != 200:
+            return hrefs
+        storage: dict = r.json() or {}
         for dref in storage.get("Drives") or []:
             dhref = dref.get("@odata.id") if isinstance(dref, dict) else None
-            if not dhref:
-                continue
-            try:
-                dr = await client.get(f"{base}{dhref}")
-            except Exception:
-                continue
-            if dr.status_code != 200:
-                continue
-            d = dr.json() or {}
-            cap_bytes = d.get("CapacityBytes") or 0
-            drives.append(
-                {
-                    "name": d.get("Name") or d.get("Id") or "?",
-                    "model": d.get("Model") or "—",
-                    "sn": d.get("SerialNumber") or None,
-                    "capacityGB": (
-                        round(cap_bytes / (1024**3), 0) if cap_bytes else 0
-                    ),
-                    "mediaType": d.get("MediaType") or "—",
-                    "status": ((d.get("Status") or {}).get("Health")) or "OK",
-                }
-            )
+            if dhref:
+                hrefs.append(dhref)
+        return hrefs
+
+    controller_results = await asyncio.gather(
+        *[_controller_drive_hrefs(m) for m in members],
+        return_exceptions=True,
+    )
+    drive_hrefs: list[str] = []
+    for result in controller_results:
+        if isinstance(result, list):
+            drive_hrefs.extend(h for h in result if h)
+
+    if not drive_hrefs:
+        return drives
+
+    # ── Phase 2: fetch every drive detail in parallel ──
+    async def _get_drive(href: str) -> dict | None:
+        try:
+            async with _BMC_SEMAPHORE:
+                r = await client.get(f"{base}{href}")
+        except Exception:
+            return None
+        if r.status_code != 200:
+            return None
+        d = r.json() or {}
+        cap = d.get("CapacityBytes") or 0
+        return {
+            "name": d.get("Name") or d.get("Id") or "?",
+            "model": d.get("Model") or "—",
+            "sn": d.get("SerialNumber") or None,
+            "capacityGB": round(cap / (1024**3), 0) if cap else 0,
+            "mediaType": d.get("MediaType") or "—",
+            "status": ((d.get("Status") or {}).get("Health")) or "OK",
+        }
+
+    results = await asyncio.gather(
+        *[_get_drive(h) for h in drive_hrefs],
+        return_exceptions=True,
+    )
+    for result in results:
+        if isinstance(result, dict):
+            drives.append(result)
+
     return drives
 
 
@@ -424,38 +458,52 @@ async def _redfish_memory_dims(
 ) -> list[dict]:
     """Discover individual DIMMs under ``/Systems/X/Memory``.
 
-    Returns a list of DIMM descriptors with slot, model, serial number,
-    capacity, memory type, and health status — similar to the drives list
-    so the frontend can show a detailed per-slot table.
-    """
+    All DIMM detail requests are fetched in parallel so the full set
+    completes within the per-request timeout window (previously serial
+    enumeration could easily exceed 30 s on servers with 8+ DIMMs)."""
     dims: list[dict] = []
     try:
         coll = await client.get(f"{base}/{system_path}/Memory")
         if coll.status_code != 200:
             return dims
         members = (coll.json() or {}).get("Members") or []
-        for m in members:
-            href = m.get("@odata.id")
-            if not href:
-                continue
-            r = await client.get(f"{base}{href}")
-            if r.status_code != 200:
-                continue
-            d = r.json() or {}
-            loc = d.get("DeviceLocator") or d.get("Name") or d.get("Id") or "?"
-            capacity_mib = d.get("CapacityMiB") or 0
-            dims.append(
-                {
-                    "slot": loc,
-                    "model": d.get("Model") or d.get("Manufacturer") or "—",
-                    "sn": d.get("SerialNumber") or None,
-                    "capacityMiB": capacity_mib,
-                    "memoryType": d.get("MemoryDeviceType") or "—",
-                    "status": ((d.get("Status") or {}).get("Health")) or "OK",
-                }
-            )
     except Exception:
-        pass  # Memory detail isn't critical
+        return dims
+
+    if not members:
+        return dims
+
+    async def _get_dim(m) -> dict | None:
+        href = m.get("@odata.id")
+        if not href:
+            return None
+        try:
+            async with _BMC_SEMAPHORE:
+                r = await client.get(f"{base}{href}")
+        except Exception:
+            return None
+        if r.status_code != 200:
+            return None
+        d = r.json() or {}
+        loc = d.get("DeviceLocator") or d.get("Name") or d.get("Id") or "?"
+        capacity_mib = d.get("CapacityMiB") or 0
+        return {
+            "slot": loc,
+            "model": d.get("Model") or d.get("Manufacturer") or "—",
+            "sn": d.get("SerialNumber") or None,
+            "capacityMiB": capacity_mib,
+            "memoryType": d.get("MemoryDeviceType") or "—",
+            "status": ((d.get("Status") or {}).get("Health")) or "OK",
+        }
+
+    results = await asyncio.gather(
+        *[_get_dim(m) for m in members],
+        return_exceptions=True,
+    )
+    for result in results:
+        if isinstance(result, dict):
+            dims.append(result)
+
     return dims
 
 
