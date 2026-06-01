@@ -174,6 +174,15 @@ export async function getBmcStatus(
   return data as BmcStatus;
 }
 
+export async function refreshBmcStatus(serverId: string): Promise<BmcStatus> {
+  // Cloud path: invoke edge function with refresh flag.
+  const { data, error } = await supabase.functions.invoke("bmc-status", {
+    body: { serverId, refresh: true },
+  });
+  if (error) throw error;
+  return data as BmcStatus;
+}
+
 // ---------- Parts ----------
 export async function listParts(): Promise<Part[]> {
   const { data, error } = await supabase

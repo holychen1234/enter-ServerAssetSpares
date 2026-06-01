@@ -196,7 +196,56 @@ async def server_bmc(
     s = db.get(Server, sid)
     if not s:
         raise HTTPException(404, "server not found")
-    return await bmc_svc.get_status(s, force_refresh=refresh)
+
+    # On explicit refresh: poll BMC live and persist a fresh snapshot.
+    if refresh:
+        snap = await bmc_svc.collect_and_save(s)
+        if snap:
+            return {**bmc_svc.snapshot_to_status(snap), "lastCollectedAt": snap.collected_at.isoformat()}
+        # BMC unreachable — fall back to latest persisted snapshot.
+        snap = bmc_svc.get_latest_snapshot(sid)
+
+    # Normal request: serve from persisted snapshot.
+    if not refresh:
+        snap = bmc_svc.get_latest_snapshot(sid)
+
+    if snap:
+        return {**bmc_svc.snapshot_to_status(snap), "lastCollectedAt": snap.collected_at.isoformat()}
+
+    # No snapshot exists yet — poll live and persist so subsequent requests are instant.
+    snap = await bmc_svc.collect_and_save(s)
+    if snap:
+        return {**bmc_svc.snapshot_to_status(snap), "lastCollectedAt": snap.collected_at.isoformat()}
+
+    # Last resort: live one-off without persistence (BMC totally unreachable).
+    status = await bmc_svc.get_status(s, force_refresh=True)
+    return {**status, "lastCollectedAt": None}
+
+
+@router.post("/servers/{sid}/bmc/refresh")
+async def server_bmc_refresh(
+    sid: str,
+    db: Session = Depends(get_db),
+    user: Profile = Depends(require_writer),
+):
+    """Manually trigger a BMC poll + persist the snapshot."""
+    s = db.get(Server, sid)
+    if not s:
+        raise HTTPException(404, "server not found")
+    snap = await bmc_svc.collect_and_save(s)
+    if not snap:
+        raise HTTPException(502, "BMC 不可达，无法刷新数据")
+    db.add(
+        AuditLog(
+            id=str(uuid.uuid4()),
+            actor=user.username,
+            action="bmc.refresh",
+            target=f"srv:{s.hostname}",
+            detail="手动刷新 BMC 实时数据",
+        )
+    )
+    db.commit()
+    return {**bmc_svc.snapshot_to_status(snap), "lastCollectedAt": snap.collected_at.isoformat()}
 
 
 @router.get("/servers/{sid}/installed-items")

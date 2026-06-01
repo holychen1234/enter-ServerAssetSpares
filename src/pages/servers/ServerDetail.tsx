@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { useNavigate, useParams, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { getBmcStatus, getServer, listMovements, listAuditLogs, listInstalledItems, lookupItemsBySns } from "@/lib/api/cmdb";
+import { getBmcStatus, refreshBmcStatus, getServer, listMovements, listAuditLogs, listInstalledItems, lookupItemsBySns } from "@/lib/api/cmdb";
 import { PageHeader } from "@/components/cmdb/PageHeader";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -23,7 +23,8 @@ export default function ServerDetail() {
     queryKey: ["bmc", id],
     queryFn: () => getBmcStatus(id),
     enabled: !!id,
-    refetchInterval: 15000,
+    // No auto-refetch — data is persisted daily. Use the manual button instead.
+    staleTime: 60000,
   });
   const { data: movements = [] } = useQuery({
     queryKey: ["movements"],
@@ -97,7 +98,8 @@ export default function ServerDetail() {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => getBmcStatus(id, { force: true }).then(() => refetch())}
+              disabled={isFetching}
+              onClick={() => refreshBmcStatus(id).then(() => refetch())}
             >
               <RefreshCw className={`mr-1 h-4 w-4 ${isFetching ? "animate-spin" : ""}`} /> 刷新 BMC
             </Button>
