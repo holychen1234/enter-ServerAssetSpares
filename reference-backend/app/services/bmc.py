@@ -263,15 +263,19 @@ async def _redfish_storage_drives(
         # Path 1: modern Storage schema (Dell iDRAC 9+, Supermicro X11+, etc.)
         drives = await _redfish_storage_modern(client, base, system_path)
         if drives:
+            logger.debug("redfish storage: got %d drives via Path 1 (Storage)", len(drives))
             return drives
         # Path 2: SimpleStorage (older Dell iDRAC 8, HPE iLO 4)
         drives = await _redfish_storage_simple(client, base, system_path)
         if drives:
+            logger.debug("redfish storage: got %d drives via Path 2 (SimpleStorage)", len(drives))
             return drives
         # Path 3: Chassis-level Drives (XFusion, H3C, and other vendors where
         # /Systems/X/Storage returns 404 but /Chassis/X/Drives contains the
         # full drive collection).
         drives = await _redfish_chassis_drives(client, base)
+        if drives:
+            logger.debug("redfish storage: got %d drives via Path 3 (Chassis/Drives)", len(drives))
     except Exception:
         pass  # Storage isn't critical — keep returning what we have
     return drives
@@ -282,7 +286,10 @@ async def _redfish_storage_modern(
 ) -> list[dict]:
     """Redfish Storage schema (iDRAC 9+, Supermicro X11+, etc.)."""
     drives: list[dict] = []
-    storage_coll = await client.get(f"{base}/{system_path}/Storage")
+    try:
+        storage_coll = await client.get(f"{base}/{system_path}/Storage")
+    except Exception:
+        return drives
     if storage_coll.status_code != 200:
         return drives
     members = (storage_coll.json() or {}).get("Members") or []
@@ -290,7 +297,10 @@ async def _redfish_storage_modern(
         storage_href = m.get("@odata.id")
         if not storage_href:
             continue
-        storage_res = await client.get(f"{base}{storage_href}")
+        try:
+            storage_res = await client.get(f"{base}{storage_href}")
+        except Exception:
+            continue
         if storage_res.status_code != 200:
             continue
         storage: dict = storage_res.json() or {}
@@ -298,7 +308,10 @@ async def _redfish_storage_modern(
             dhref = dref.get("@odata.id") if isinstance(dref, dict) else None
             if not dhref:
                 continue
-            dr = await client.get(f"{base}{dhref}")
+            try:
+                dr = await client.get(f"{base}{dhref}")
+            except Exception:
+                continue
             if dr.status_code != 200:
                 continue
             d = dr.json() or {}
@@ -381,11 +394,18 @@ async def _redfish_chassis_drives(
                 continue
             d = dr.json() or {}
             cap_bytes = d.get("CapacityBytes") or 0
+            # Skip placeholder entries where the BMC reports null for all
+            # meaningful fields (e.g. Inspur / XFusion providing
+            # Chassis/Drives member stubs with no actual drive data).
+            model = d.get("Model")
+            sn = d.get("SerialNumber")
+            if cap_bytes == 0 and model is None and sn is None:
+                continue
             drives.append(
                 {
                     "name": d.get("Name") or d.get("Id") or "?",
-                    "model": d.get("Model") or "—",
-                    "sn": d.get("SerialNumber") or None,
+                    "model": model or "—",
+                    "sn": sn or None,
                     "capacityGB": (
                         round(cap_bytes / (1024**3), 0) if cap_bytes else 0
                     ),
@@ -677,11 +697,19 @@ async def _collect_redfish(server: Server) -> dict | None:
                 if session_uri:
                     await _redfish_delete_session(client, base, session_uri)
     except Exception as e:
+        import traceback as _tb
         logger.warning(
-            "redfish poll failed for %s (manufacturer=%s): %s",
+            "redfish poll failed for %s (manufacturer=%s, mgmt_ip=%s): %s | %s",
             server.id,
             server.manufacturer,
+            server.mgmt_ip,
             e,
+            repr(e),
+        )
+        logger.warning(
+            "redfish poll traceback for %s:\n%s",
+            server.id,
+            _tb.format_exc(),
         )
         return None
 

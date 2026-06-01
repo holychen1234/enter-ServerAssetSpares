@@ -15,14 +15,34 @@ async def _poll_all():
     """Background poller — drives the in-memory history ring buffer for
     every online server so the trend chart has data even if no operator
     has opened the detail page yet."""
+    import asyncio as _asyncio
+    import logging as _logging
+    _log = _logging.getLogger("bmc.poll")
+
     db = SessionLocal()
     try:
         servers = db.query(Server).filter(Server.status == "online").all()
-        for s in servers:
+        if not servers:
+            return
+
+        # Poll all servers in parallel with a per-server timeout so a single
+        # slow / unreachable BMC never blocks the whole batch.
+        async def _poll_one(s):
             try:
-                await bmc_svc.get_status(s, force_refresh=True)
+                await _asyncio.wait_for(
+                    bmc_svc.get_status(s, force_refresh=True),
+                    timeout=settings.redfish_timeout_seconds + 10,
+                )
+            except _asyncio.TimeoutError:
+                _log.warning(
+                    "poll timeout for %s (%s, mgmt_ip=%s)",
+                    s.id, s.manufacturer, s.mgmt_ip,
+                )
             except Exception:
                 pass
+
+        tasks = [_poll_one(s) for s in servers]
+        await _asyncio.gather(*tasks, return_exceptions=True)
     finally:
         db.close()
 
