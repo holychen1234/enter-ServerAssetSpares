@@ -27,6 +27,16 @@ import {
   YAxis,
 } from "recharts";
 
+/** Parse ISO string, treating naive (no-timezone) strings as UTC.
+ *  Backend may omit timezone suffix on DB-persisted timestamps.
+ *  Without this, `new Date("...")` interprets naive strings as
+ *  local time (browser timezone), breaking the UTC→Asia/Shanghai conversion. */
+function toDate(s: string): Date {
+  return /[+-]\d{2}:\d{2}$/.test(s) || s.endsWith("Z")
+    ? new Date(s)
+    : new Date(s + "Z");
+}
+
 interface Props {
   status: BmcStatus;
   loading?: boolean;
@@ -119,11 +129,11 @@ export function BmcLiveCard({ status, loading, itemSnMap }: Props) {
           </div>
           <div className="border-t border-border pt-3 text-[11px] text-muted-foreground">
             {status.lastCollectedAt ? (
-              <>最近采集：{new Date(status.lastCollectedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}</>
+              <>最近采集：{toDate(status.lastCollectedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}</>
             ) : status.source === "live" ? (
-              <>实时数据 · {new Date(status.updatedAt).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai' })}</>
+              <>实时数据 · {toDate(status.updatedAt).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai' })}</>
             ) : (
-              <>模拟数据 · {new Date(status.updatedAt).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai' })}</>
+              <>模拟数据 · {toDate(status.updatedAt).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai' })}</>
             )}
           </div>
         </CardContent>
@@ -414,7 +424,7 @@ export function BmcLiveCard({ status, loading, itemSnMap }: Props) {
                   <div className="min-w-0 flex-1">
                     <p className="text-sm text-foreground">{l.message}</p>
                     <p className="mt-0.5 text-[11px] text-muted-foreground">
-                      {l.createdAt ? new Date(l.createdAt).toLocaleString() : "—"}
+                      {l.createdAt ? toDate(l.createdAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : "—"}
                     </p>
                   </div>
                 </div>
@@ -442,7 +452,7 @@ export function BmcLiveCard({ status, loading, itemSnMap }: Props) {
                 <div className="min-w-0 flex-1">
                   <p className="text-sm text-foreground">{a.message}</p>
                   <p className="mt-0.5 text-[11px] text-muted-foreground">
-                    {new Date(a.time).toLocaleString()}
+                    {toDate(a.time).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}
                   </p>
                 </div>
               </div>
