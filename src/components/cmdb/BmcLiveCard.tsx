@@ -119,11 +119,11 @@ export function BmcLiveCard({ status, loading, itemSnMap }: Props) {
           </div>
           <div className="border-t border-border pt-3 text-[11px] text-muted-foreground">
             {status.lastCollectedAt ? (
-              <>最近采集：{new Date(status.lastCollectedAt).toLocaleString()}</>
+              <>最近采集：{new Date(status.lastCollectedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}</>
             ) : status.source === "live" ? (
-              <>实时数据 · {new Date(status.updatedAt).toLocaleTimeString()}</>
+              <>实时数据 · {new Date(status.updatedAt).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai' })}</>
             ) : (
-              <>模拟数据 · {new Date(status.updatedAt).toLocaleTimeString()}</>
+              <>模拟数据 · {new Date(status.updatedAt).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai' })}</>
             )}
           </div>
         </CardContent>
@@ -414,7 +414,7 @@ export function BmcLiveCard({ status, loading, itemSnMap }: Props) {
                   <div className="min-w-0 flex-1">
                     <p className="text-sm text-foreground">{l.message}</p>
                     <p className="mt-0.5 text-[11px] text-muted-foreground">
-                      {l.createdAt ? new Date(l.createdAt).toLocaleString() : "—"}
+                      {l.createdAt ? new Date(l.createdAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' }) : "—"}
                     </p>
                   </div>
                 </div>
@@ -442,7 +442,7 @@ export function BmcLiveCard({ status, loading, itemSnMap }: Props) {
                 <div className="min-w-0 flex-1">
                   <p className="text-sm text-foreground">{a.message}</p>
                   <p className="mt-0.5 text-[11px] text-muted-foreground">
-                    {new Date(a.time).toLocaleString()}
+                    {new Date(a.time).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}
                   </p>
                 </div>
               </div>
