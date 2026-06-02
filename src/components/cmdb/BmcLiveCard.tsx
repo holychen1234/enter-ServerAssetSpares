@@ -119,11 +119,11 @@ export function BmcLiveCard({ status, loading, itemSnMap }: Props) {
           </div>
           <div className="border-t border-border pt-3 text-[11px] text-muted-foreground">
             {status.lastCollectedAt ? (
-              <>最近采集：{new Date(status.lastCollectedAt).toLocaleString()}</>
+              <>最近采集：{new Date(status.lastCollectedAt).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}</>
             ) : status.source === "live" ? (
-              <>实时数据 · {new Date(status.updatedAt).toLocaleTimeString()}</>
+              <>实时数据 · {new Date(status.updatedAt).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai' })}</>
             ) : (
-              <>模拟数据 · {new Date(status.updatedAt).toLocaleTimeString()}</>
+              <>模拟数据 · {new Date(status.updatedAt).toLocaleTimeString('zh-CN', { timeZone: 'Asia/Shanghai' })}</>
             )}
           </div>
         </CardContent>
