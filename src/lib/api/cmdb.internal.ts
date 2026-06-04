@@ -8,6 +8,7 @@ import type {
   PartItem,
   Server,
   StockMovement,
+  TerminalAsset,
 } from "@/types/cmdb";
 import { INTERNAL_API_BASE } from "./mode";
 
@@ -120,6 +121,43 @@ export async function getBmcStatus(
 
 export async function refreshBmcStatus(serverId: string): Promise<BmcStatus> {
   return api<BmcStatus>(`/servers/${serverId}/bmc/refresh`, { method: "POST" });
+}
+
+// ---------- Terminal Assets ----------
+export async function listTerminalAssets(): Promise<TerminalAsset[]> {
+  return api<TerminalAsset[]>("/terminal-assets");
+}
+
+export async function getTerminalAsset(id: string): Promise<TerminalAsset | undefined> {
+  try {
+    return await api<TerminalAsset>(`/terminal-assets/${id}`);
+  } catch {
+    return undefined;
+  }
+}
+
+export async function createTerminalAsset(
+  data: Omit<TerminalAsset, "id" | "createdAt" | "updatedAt">,
+): Promise<TerminalAsset> {
+  return api<TerminalAsset>("/terminal-assets", { method: "POST", body: data });
+}
+
+export async function updateTerminalAsset(
+  id: string,
+  patch: Partial<TerminalAsset>,
+): Promise<TerminalAsset> {
+  return api<TerminalAsset>(`/terminal-assets/${id}`, { method: "PATCH", body: patch });
+}
+
+export async function deleteTerminalAsset(id: string): Promise<void> {
+  await api<void>(`/terminal-assets/${id}`, { method: "DELETE" });
+}
+
+export async function batchDeleteTerminalAssets(ids: string[]): Promise<void> {
+  await api<void>("/terminal-assets/batch-delete", {
+    method: "POST",
+    body: { ids },
+  });
 }
 
 // ---------- Parts ----------

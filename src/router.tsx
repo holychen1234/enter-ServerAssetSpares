@@ -5,6 +5,8 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import ServerList from "./pages/servers/ServerList";
 import ServerDetail from "./pages/servers/ServerDetail";
+import TerminalAssetList from "./pages/terminal-assets/TerminalAssetList";
+import TerminalAssetDetail from "./pages/terminal-assets/TerminalAssetDetail";
 
 import PartList from "./pages/inventory/PartList";
 import PartDetail from "./pages/inventory/PartDetail";
@@ -31,6 +33,8 @@ export const routers = [
       { path: "dashboard", name: "dashboard", element: <Dashboard /> },
       { path: "servers", name: "servers", element: <ServerList /> },
       { path: "servers/:id", name: "server-detail", element: <ServerDetail /> },
+      { path: "terminal-assets", name: "terminal-assets", element: <TerminalAssetList /> },
+      { path: "terminal-assets/:id", name: "terminal-asset-detail", element: <TerminalAssetDetail /> },
 
       { path: "inventory", element: <Navigate to="/inventory/parts" replace /> },
       { path: "inventory/parts", name: "parts", element: <PartList /> },

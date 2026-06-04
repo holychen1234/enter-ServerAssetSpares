@@ -4,7 +4,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import ai_query, auth_users, parts, servers
+from app.api import ai_query, auth_users, parts, servers, terminal_assets
 from app.db.base import SessionLocal
 from app.db.models import Server
 from app.services import bmc as bmc_svc
@@ -82,4 +82,5 @@ def healthz():
 app.include_router(auth_users.router, prefix="/api")
 app.include_router(servers.router, prefix="/api")
 app.include_router(parts.router, prefix="/api")
+app.include_router(terminal_assets.router, prefix="/api")
 app.include_router(ai_query.router, prefix="/api")

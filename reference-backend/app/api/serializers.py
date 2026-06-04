@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Iterable
 
-from app.db.models import AuditLog, Part, PartItem, Profile, Server, StockMovement
+from app.db.models import AuditLog, Part, PartItem, Profile, Server, StockMovement, TerminalAsset
 
 
 def _iso(dt: datetime | None) -> str:
@@ -135,3 +135,35 @@ def movement_to_dict(
 
 def to_list(items: Iterable, fn) -> list:
     return [fn(x) for x in items]
+
+
+def terminal_asset_to_dict(ta) -> dict:
+    return {
+        "id": ta.id,
+        "hostname": ta.hostname,
+        "sn": ta.sn,
+        "assetTag": ta.asset_tag,
+        "manufacturer": ta.manufacturer,
+        "model": ta.model,
+        "cpuModel": ta.cpu_model,
+        "cpuCount": ta.cpu_count,
+        "memoryGB": ta.memory_gb,
+        "diskType": ta.disk_type,
+        "diskCapacityGB": ta.disk_capacity_gb,
+        "macAddress": ta.mac_address or "",
+        "os": ta.os,
+        "osVersion": ta.os_version or "",
+        "bizIp": ta.biz_ip or "",
+        "userName": ta.user_name or "",
+        "department": ta.department or "",
+        "officeBuilding": ta.office_building or "",
+        "floor": ta.floor or "",
+        "seat": ta.seat or "",
+        "status": ta.status,
+        "purchaseDate": ta.purchase_date.isoformat() if isinstance(ta.purchase_date, (datetime,)) else (ta.purchase_date or ""),
+        "warrantyEnd": ta.warranty_end.isoformat() if isinstance(ta.warranty_end, (datetime,)) else (ta.warranty_end or ""),
+        "tags": ta.tags or [],
+        "remark": ta.remark,
+        "createdAt": _iso(ta.created_at),
+        "updatedAt": _iso(ta.updated_at),
+    }

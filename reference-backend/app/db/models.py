@@ -169,6 +169,43 @@ class AuditLog(Base):
     created_at = Column(DateTime, default=_utc_now, nullable=False)
 
 
+class TerminalAsset(Base):
+    __tablename__ = "terminal_assets"
+    id = Column(CHAR(36), primary_key=True)
+    hostname = Column(String(128), nullable=False)
+    sn = Column(String(64), unique=True, nullable=False)
+    asset_tag = Column(String(64), unique=True, nullable=False)
+    manufacturer = Column(String(32), nullable=False)
+    model = Column(String(64), nullable=False)
+    cpu_model = Column(String(128), nullable=False)
+    cpu_count = Column(Integer, nullable=False, default=1)
+    memory_gb = Column(Integer, nullable=False, default=0)
+    disk_type = Column(String(32), nullable=False, default="SSD")
+    disk_capacity_gb = Column(Integer, nullable=False, default=0)
+    mac_address = Column(String(17), nullable=True)
+    os = Column(String(64), nullable=False, default="Windows 11")
+    os_version = Column(String(64), nullable=True)
+    biz_ip = Column(String(64), nullable=True)
+    user_name = Column(String(64), nullable=True)
+    department = Column(String(64), nullable=True)
+    office_building = Column(String(64), nullable=True)
+    floor = Column(String(32), nullable=True)
+    seat = Column(String(32), nullable=True)
+    status = Column(
+        Enum("online", "offline", "maintenance", "retired", name="ta_status"),
+        nullable=False,
+        default="online",
+    )
+    purchase_date = Column(DateTime, nullable=True)
+    warranty_end = Column(DateTime, nullable=True)
+    tags = Column(JSON, nullable=True)
+    remark = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=_utc_now, nullable=False)
+    updated_at = Column(
+        DateTime, default=_utc_now, onupdate=_utc_now, nullable=False
+    )
+
+
 class BmcSnapshot(Base):
     """Persisted BMC live-status snapshot — collected once per day or on manual
     refresh, so the UI never falls back to simulated data."""

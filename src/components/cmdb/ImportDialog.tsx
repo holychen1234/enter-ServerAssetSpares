@@ -31,18 +31,27 @@ import {
   parseImportFile,
   importRowToPayload,
   generateTemplate,
+  parseTerminalAssetImportFile,
+  terminalAssetImportRowToPayload,
+  generateTerminalAssetTemplate,
   downloadBlob,
   type ImportResult,
 } from "@/lib/import-export";
-import { createServer } from "@/lib/api/cmdb";
+import { createServer, createTerminalAsset } from "@/lib/api/cmdb";
 
 interface Props {
   open: boolean;
   onClose: () => void;
   onImported: () => void; // callback to refresh server list
+  entityType?: "server" | "terminal-asset";
 }
 
-export function ImportDialog({ open, onClose, onImported }: Props) {
+export function ImportDialog({ open, onClose, onImported, entityType = "server" }: Props) {
+  const isServer = entityType === "server";
+  const title = isServer ? "批量导入主机" : "批量导入终端资产";
+  const description = isServer
+    ? "支持 Excel (.xlsx) 和 CSV 文件。请先下载模板，按格式填写后上传。"
+    : "支持 Excel (.xlsx) 和 CSV 文件。请先下载终端资产模板，按格式填写后上传。";
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<"upload" | "preview" | "importing" | "done">("upload");
   const [result, setResult] = useState<ImportResult | null>(null);
@@ -64,7 +73,7 @@ export function ImportDialog({ open, onClose, onImported }: Props) {
 
   const handleFile = useCallback(async (file: File) => {
     try {
-      const r = await parseImportFile(file);
+      const r = await (isServer ? parseImportFile(file) : parseTerminalAssetImportFile(file));
       if (r.rows.length === 0) {
         toast({ title: "文件为空", description: "未检测到有效数据行" });
         return;
@@ -123,8 +132,13 @@ export function ImportDialog({ open, onClose, onImported }: Props) {
     const errs: string[] = [];
     for (let i = 0; i < valid.length; i++) {
       try {
-        const payload = importRowToPayload(valid[i].data);
-        await createServer(payload);
+        if (isServer) {
+          const payload = importRowToPayload(valid[i].data);
+          await createServer(payload);
+        } else {
+          const payload = terminalAssetImportRowToPayload(valid[i].data);
+          await createTerminalAsset(payload);
+        }
         ok++;
       } catch (err) {
         const msg = err instanceof Error ? err.message : "未知错误";
@@ -145,19 +159,18 @@ export function ImportDialog({ open, onClose, onImported }: Props) {
   };
 
   const downloadTemplate = (format: "csv" | "xlsx") => {
-    const blob = generateTemplate(format);
+    const blob = isServer ? generateTemplate(format) : generateTerminalAssetTemplate(format);
     const ext = format === "csv" ? "csv" : "xlsx";
-    downloadBlob(blob, `主机资产导入模板.${ext}`);
+    const filename = isServer ? `主机资产导入模板.${ext}` : `终端资产导入模板.${ext}`;
+    downloadBlob(blob, filename);
   };
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
       <DialogContent className="sm:max-w-[700px] max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>批量导入主机</DialogTitle>
-          <DialogDescription>
-            支持 Excel (.xlsx) 和 CSV 文件。请先下载模板，按格式填写后上传。
-          </DialogDescription>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
         {/* Step: upload */}

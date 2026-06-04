@@ -25,6 +25,7 @@ import {
   LogOut,
   CircuitBoard,
   Key,
+  Monitor,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -51,6 +52,7 @@ interface NavItem {
 const MAIN_NAV: NavItem[] = [
   { to: "/dashboard", label: "仪表盘", icon: LayoutDashboard, end: true },
   { to: "/servers", label: "主机资产", icon: Server },
+  { to: "/terminal-assets", label: "终端资产", icon: Monitor },
 ];
 
 const INVENTORY_NAV: NavItem[] = [

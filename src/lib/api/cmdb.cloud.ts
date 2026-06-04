@@ -10,6 +10,7 @@ import type {
   PartItem,
   Server,
   StockMovement,
+  TerminalAsset,
 } from "@/types/cmdb";
 import {
   partToRow,
@@ -617,4 +618,28 @@ export function subscribeAuthChanges(
     cb(!!session);
   });
   return () => sub.subscription.unsubscribe();
+}
+
+// ---------- Terminal Assets (cloud stub) ----------
+export async function listTerminalAssets(): Promise<TerminalAsset[]> {
+  throw new Error("Not implemented in cloud mode");
+}
+export async function getTerminalAsset(_id: string): Promise<TerminalAsset | undefined> {
+  throw new Error("Not implemented in cloud mode");
+}
+export async function createTerminalAsset(
+  _data: Omit<TerminalAsset, "id" | "createdAt" | "updatedAt">,
+): Promise<TerminalAsset> {
+  throw new Error("Not implemented in cloud mode");
+}
+export async function updateTerminalAsset(
+  _id: string, _patch: Partial<TerminalAsset>,
+): Promise<TerminalAsset> {
+  throw new Error("Not implemented in cloud mode");
+}
+export async function deleteTerminalAsset(_id: string): Promise<void> {
+  throw new Error("Not implemented in cloud mode");
+}
+export async function batchDeleteTerminalAssets(_ids: string[]): Promise<void> {
+  throw new Error("Not implemented in cloud mode");
 }

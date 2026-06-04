@@ -120,6 +120,59 @@ export interface BmcStatus {
   }[];
 }
 
+// ── TerminalAsset ──────────────────────────────────────────
+
+export type TerminalAssetManufacturer =
+  | "Dell"
+  | "HP"
+  | "Lenovo"
+  | "Apple"
+  | "Huawei"
+  | "ASUS"
+  | "Acer"
+  | "Microsoft"
+  | "Other";
+
+export type OperatingSystem =
+  | "Windows 10"
+  | "Windows 11"
+  | "macOS"
+  | "Ubuntu"
+  | "CentOS"
+  | "Other";
+
+/** Note: no `monitors` — by design, terminal assets do not track
+ *  display accessories during manual entry or batch import. */
+export interface TerminalAsset {
+  id: string;
+  hostname: string;
+  sn: string;
+  assetTag: string;
+  manufacturer: TerminalAssetManufacturer;
+  model: string;
+  cpuModel: string;
+  cpuCount: number;
+  memoryGB: number;
+  diskType: string;
+  diskCapacityGB: number;
+  macAddress?: string;
+  os: OperatingSystem;
+  osVersion?: string;
+  bizIp?: string;
+  userName?: string;
+  department?: string;
+  officeBuilding?: string;
+  floor?: string;
+  seat?: string;
+  status: ServerStatus;
+  purchaseDate?: string;
+  warrantyEnd?: string;
+  tags: string[];
+  remark?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type PartCategory = "disk" | "memory" | "nic" | "optical" | "other";
 export type PartStatus = "in_stock" | "allocated" | "in_use" | "scrapped";
 export type PartItemStatus = "in_stock" | "allocated" | "in_use" | "scrapped";
