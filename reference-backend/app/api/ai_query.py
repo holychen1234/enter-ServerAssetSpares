@@ -8,14 +8,14 @@ import json
 import os
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.api.serializers import part_to_dict, server_to_dict
+from app.api.serializers import part_to_dict, server_to_dict, terminal_asset_to_dict
 from app.db.base import get_db
-from app.db.models import Part, Server
+from app.db.models import Part, Server, TerminalAsset
 from app.services import bmc as bmc_svc
 from app.settings import settings
 
@@ -96,6 +96,22 @@ def _part_brief(p) -> dict:
         "unit": p.unit,
         "location": p.location,
         "status": p.status,
+    }
+
+
+def _terminal_asset_brief(ta) -> dict:
+    """Compact terminal asset view for list results."""
+    return {
+        "hostname": ta.hostname,
+        "sn": ta.sn,
+        "assetTag": ta.asset_tag,
+        "manufacturer": ta.manufacturer,
+        "model": ta.model,
+        "os": ta.os,
+        "bizIp": ta.biz_ip or "",
+        "userName": ta.user_name or "",
+        "department": ta.department or "",
+        "status": ta.status,
     }
 
 
@@ -413,11 +429,88 @@ async def get_server_bmc_status(
 
 
 
+@router.get("/search-terminal-assets")
+def search_terminal_assets(
+    keyword: str = Query(default="", description="任意关键词，匹配计算机名/SN/资产编号/IP/型号/使用人/部门"),
+    manufacturer: str = Query(default="", description="厂商过滤: Dell, HP, Lenovo, Apple, Huawei, ASUS, Acer, Microsoft"),
+    status: str = Query(default="", description="状态: online, offline, maintenance, retired"),
+    os: str = Query(default="", description="操作系统过滤"),
+    department: str = Query(default="", description="部门过滤"),
+    limit: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    _: None = Depends(verify_api_key),
+):
+    """搜索终端资产。Aily/Dify use this when user asks about terminal
+    assets, desktops, laptops, or employee computers."""
+    q = db.query(TerminalAsset)
+
+    if keyword:
+        kw = f"%{keyword}%"
+        q = q.filter(
+            TerminalAsset.hostname.ilike(kw)
+            | TerminalAsset.sn.ilike(kw)
+            | TerminalAsset.asset_tag.ilike(kw)
+            | TerminalAsset.biz_ip.ilike(kw)
+            | TerminalAsset.model.ilike(kw)
+            | TerminalAsset.user_name.ilike(kw)
+            | TerminalAsset.department.ilike(kw)
+        )
+    if manufacturer:
+        mfr_norm = _normalize_manufacturer(manufacturer)
+        if mfr_norm:
+            q = q.filter(TerminalAsset.manufacturer == mfr_norm)
+        else:
+            q = q.filter(TerminalAsset.manufacturer == manufacturer)
+    if status:
+        q = q.filter(TerminalAsset.status == status)
+    if os:
+        q = q.filter(TerminalAsset.os == os)
+    if department:
+        q = q.filter(TerminalAsset.department == department)
+
+    rows = q.order_by(TerminalAsset.hostname).limit(limit).all()
+    return {
+        "count": len(rows),
+        "items": [_terminal_asset_brief(w) for w in rows],
+    }
+
+
+@router.get("/get-terminal-asset-detail")
+def get_terminal_asset_detail(
+    identifier: str = Query(..., description="计算机名、SN序列号、资产编号或IP地址"),
+    db: Session = Depends(get_db),
+    _: None = Depends(verify_api_key),
+):
+    """获取单台终端资产完整信息。Aily/Dify use this when user asks
+    for detailed info about a specific terminal asset.
+    identifier can be hostname, SN, asset tag, or IP address."""
+    ta = (
+        db.query(TerminalAsset)
+        .filter(
+            (TerminalAsset.hostname == identifier)
+            | (TerminalAsset.sn == identifier)
+            | (TerminalAsset.asset_tag == identifier)
+            | (TerminalAsset.biz_ip == identifier)
+        )
+        .first()
+    )
+    if not ta:
+        return {"found": False, "message": f"未找到终端资产: {identifier}"}
+    return {"found": True, **terminal_asset_to_dict(ta)}
+
+
 # ── OpenAPI schema (no auth — Dify needs to fetch it for import) ─
 
 @router.get("/openapi.json", include_in_schema=False)
-def openapi_schema():
-    """Serve the OpenAPI 3.0 spec for Dify tool import."""
-    schema_path = os.path.join(os.path.dirname(__file__), "ai_openapi.json")
-    with open(schema_path, "r", encoding="utf-8") as f:
-        return JSONResponse(content=json.load(f))
+def openapi_schema(request: Request):
+    """Serve the OpenAPI 3.0 spec for Dify tool import.
+    Generated dynamically from the app's OpenAPI schema, filtering
+    to only AI-related paths so Dify can import the tools."""
+    schema = request.app.openapi()
+    # Keep only AI-prefixed paths (tools that Dify / Aily can call)
+    ai_paths = {p: v for p, v in schema.get("paths", {}).items() if p.startswith("/api/ai/")}
+    # Update servers URL
+    base_url = str(request.base_url).rstrip("/")
+    schema["servers"] = [{"url": f"{base_url}/api/ai", "description": "AI tools"}]
+    schema["paths"] = ai_paths
+    return JSONResponse(content=schema)
