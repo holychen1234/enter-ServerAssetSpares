@@ -96,12 +96,6 @@ export default function TerminalAssetDetail() {
           </InfoCard>
           <InfoCard title="使用者">
             <Row label="使用人" value={ta.userName} />
-            <Row label="部门" value={ta.department} />
-          </InfoCard>
-          <InfoCard title="位置">
-            <Row label="办公楼" value={ta.officeBuilding} />
-            <Row label="楼层" value={ta.floor} />
-            <Row label="工位" value={ta.seat} />
           </InfoCard>
           <InfoCard title="生命周期">
             <Row label="采购日期" value={ta.purchaseDate} />

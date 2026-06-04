@@ -160,10 +160,6 @@ export interface TerminalAsset {
   osVersion?: string;
   bizIp?: string;
   userName?: string;
-  department?: string;
-  officeBuilding?: string;
-  floor?: string;
-  seat?: string;
   status: ServerStatus;
   purchaseDate?: string;
   warrantyEnd?: string;

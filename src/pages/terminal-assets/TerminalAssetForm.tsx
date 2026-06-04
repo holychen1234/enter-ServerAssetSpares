@@ -39,10 +39,6 @@ const schema = z.object({
   osVersion: z.string().optional(),
   bizIp: z.string().optional(),
   userName: z.string().optional(),
-  department: z.string().optional(),
-  officeBuilding: z.string().optional(),
-  floor: z.string().optional(),
-  seat: z.string().optional(),
   status: z.enum(["online", "offline", "maintenance", "retired"]),
   purchaseDate: z.string().optional(),
   warrantyEnd: z.string().optional(),
@@ -75,10 +71,6 @@ const EMPTY: TerminalAssetFormData = {
   osVersion: "",
   bizIp: "",
   userName: "",
-  department: "",
-  officeBuilding: "",
-  floor: "",
-  seat: "",
   status: "online",
   purchaseDate: "",
   warrantyEnd: "",
@@ -111,10 +103,6 @@ export function TerminalAssetForm({ open, initial, onClose, onSubmit }: Props) {
           osVersion: initial.osVersion ?? "",
           bizIp: initial.bizIp ?? "",
           userName: initial.userName ?? "",
-          department: initial.department ?? "",
-          officeBuilding: initial.officeBuilding ?? "",
-          floor: initial.floor ?? "",
-          seat: initial.seat ?? "",
           status: initial.status,
           purchaseDate: initial.purchaseDate || "",
           warrantyEnd: initial.warrantyEnd || "",
@@ -144,10 +132,6 @@ export function TerminalAssetForm({ open, initial, onClose, onSubmit }: Props) {
       osVersion: values.osVersion ?? "",
       bizIp: values.bizIp ?? "",
       userName: values.userName ?? "",
-      department: values.department ?? "",
-      officeBuilding: values.officeBuilding ?? "",
-      floor: values.floor ?? "",
-      seat: values.seat ?? "",
       status: values.status,
       purchaseDate: values.purchaseDate ?? "",
       warrantyEnd: values.warrantyEnd ?? "",
@@ -231,18 +215,6 @@ export function TerminalAssetForm({ open, initial, onClose, onSubmit }: Props) {
           </Field>
           <Field label="使用人">
             <Input {...form.register("userName")} />
-          </Field>
-          <Field label="部门">
-            <Input {...form.register("department")} />
-          </Field>
-          <Field label="办公楼">
-            <Input {...form.register("officeBuilding")} />
-          </Field>
-          <Field label="楼层">
-            <Input {...form.register("floor")} />
-          </Field>
-          <Field label="工位">
-            <Input {...form.register("seat")} />
           </Field>
           <Field label="状态">
             <Select value={form.watch("status")} onValueChange={(v) => form.setValue("status", v as TerminalAssetFormData["status"])}>

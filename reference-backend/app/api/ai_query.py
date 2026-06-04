@@ -110,7 +110,6 @@ def _terminal_asset_brief(ta) -> dict:
         "os": ta.os,
         "bizIp": ta.biz_ip or "",
         "userName": ta.user_name or "",
-        "department": ta.department or "",
         "status": ta.status,
     }
 
@@ -435,7 +434,6 @@ def search_terminal_assets(
     manufacturer: str = Query(default="", description="厂商过滤: Dell, HP, Lenovo, Apple, Huawei, ASUS, Acer, Microsoft"),
     status: str = Query(default="", description="状态: online, offline, maintenance, retired"),
     os: str = Query(default="", description="操作系统过滤"),
-    department: str = Query(default="", description="部门过滤"),
     limit: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
     _: None = Depends(verify_api_key),
@@ -453,7 +451,6 @@ def search_terminal_assets(
             | TerminalAsset.biz_ip.ilike(kw)
             | TerminalAsset.model.ilike(kw)
             | TerminalAsset.user_name.ilike(kw)
-            | TerminalAsset.department.ilike(kw)
         )
     if manufacturer:
         mfr_norm = _normalize_manufacturer(manufacturer)
@@ -465,8 +462,6 @@ def search_terminal_assets(
         q = q.filter(TerminalAsset.status == status)
     if os:
         q = q.filter(TerminalAsset.os == os)
-    if department:
-        q = q.filter(TerminalAsset.department == department)
 
     rows = q.order_by(TerminalAsset.hostname).limit(limit).all()
     return {

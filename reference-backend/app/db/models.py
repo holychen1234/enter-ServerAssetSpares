@@ -187,10 +187,6 @@ class TerminalAsset(Base):
     os_version = Column(String(64), nullable=True)
     biz_ip = Column(String(64), nullable=True)
     user_name = Column(String(64), nullable=True)
-    department = Column(String(64), nullable=True)
-    office_building = Column(String(64), nullable=True)
-    floor = Column(String(32), nullable=True)
-    seat = Column(String(32), nullable=True)
     status = Column(
         Enum("online", "offline", "maintenance", "retired", name="ta_status"),
         nullable=False,

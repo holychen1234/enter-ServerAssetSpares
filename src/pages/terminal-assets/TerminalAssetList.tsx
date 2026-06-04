@@ -113,7 +113,6 @@ export default function TerminalAssetList() {
         (a.bizIp && a.bizIp.includes(kw)) ||
         a.model.toLowerCase().includes(kw) ||
         (a.userName && a.userName.toLowerCase().includes(kw)) ||
-        (a.department && a.department.toLowerCase().includes(kw)) ||
         a.tags.join(",").toLowerCase().includes(kw)
       );
     });
@@ -396,9 +395,7 @@ export default function TerminalAssetList() {
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-col text-sm">
-                      {a.userName && <span>{a.userName}</span>}
-                      {a.department && <span className="text-xs text-muted-foreground">{a.department}</span>}
-                      {!a.userName && !a.department && <span className="text-muted-foreground">—</span>}
+                      {a.userName ? <span>{a.userName}</span> : <span className="text-muted-foreground">—</span>}
                     </div>
                   </TableCell>
                   <TableCell>

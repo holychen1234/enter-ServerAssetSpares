@@ -376,10 +376,6 @@ const TERMINAL_ASSET_COLUMNS = [
   { key: "osVersion", label: "操作系统版本", required: false, example: "22H2" },
   { key: "bizIp", label: "IP地址", required: false, example: "192.168.1.100" },
   { key: "userName", label: "使用人", required: false, example: "张三" },
-  { key: "department", label: "部门", required: false, example: "财务部" },
-  { key: "officeBuilding", label: "办公楼", required: false, example: "A座" },
-  { key: "floor", label: "楼层", required: false, example: "5F" },
-  { key: "seat", label: "工位", required: false, example: "A-12" },
   { key: "status", label: "状态", required: false, example: "online" },
   { key: "purchaseDate", label: "采购日期", required: false, example: "2024-01-15" },
   { key: "warrantyEnd", label: "保修截止", required: false, example: "2027-01-15" },
@@ -416,10 +412,6 @@ function pickTerminalAssetExportValue(a: TerminalAsset, key: string): string {
     case "osVersion": return a.osVersion ?? "";
     case "bizIp": return a.bizIp ?? "";
     case "userName": return a.userName ?? "";
-    case "department": return a.department ?? "";
-    case "officeBuilding": return a.officeBuilding ?? "";
-    case "floor": return a.floor ?? "";
-    case "seat": return a.seat ?? "";
     case "status": return a.status;
     case "purchaseDate": return a.purchaseDate ?? "";
     case "warrantyEnd": return a.warrantyEnd ?? "";
@@ -477,10 +469,6 @@ export function generateTerminalAssetTemplate(format: "csv" | "xlsx"): Blob {
       if (c.key === "osVersion") return "21H2";
       if (c.key === "bizIp") return "192.168.2.50";
       if (c.key === "userName") return "李四";
-      if (c.key === "department") return "市场部";
-      if (c.key === "officeBuilding") return "B座";
-      if (c.key === "floor") return "3F";
-      if (c.key === "seat") return "B-08";
       return c.example;
     }),
   ];
@@ -641,10 +629,6 @@ export function terminalAssetImportRowToPayload(
     osVersion: data.osVersion ?? "",
     bizIp: data.bizIp ?? "",
     userName: data.userName ?? "",
-    department: data.department ?? "",
-    officeBuilding: data.officeBuilding ?? "",
-    floor: data.floor ?? "",
-    seat: data.seat ?? "",
     status: (data.status || "online") as ServerStatus,
     purchaseDate: data.purchaseDate ?? "",
     warrantyEnd: data.warrantyEnd ?? "",
