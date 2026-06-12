@@ -199,6 +199,8 @@ def _simulate(server: Server) -> dict:
         "memoryModules": [],
         "drives": drives,
         "recentLogs": recent_logs,
+        "memorySlotSummary": None,
+        "driveBaySummary": {"populated": len(drives), "total": max(len(drives), server.disk_count or 0)} if drives else None,
     }
 
 
@@ -614,6 +616,8 @@ async def _redfish_memory_dims(
         d = r.json() or {}
         loc = d.get("DeviceLocator") or d.get("Name") or d.get("Id") or "?"
         capacity_mib = d.get("CapacityMiB") or 0
+        state = (d.get("Status") or {}).get("State", "")
+        populated = state.upper() != "ABSENT" and capacity_mib > 0
         return {
             "slot": loc,
             "model": d.get("Model") or d.get("Manufacturer") or "—",
@@ -621,6 +625,7 @@ async def _redfish_memory_dims(
             "capacityMiB": capacity_mib,
             "memoryType": d.get("MemoryDeviceType") or "—",
             "status": ((d.get("Status") or {}).get("Health")) or "OK",
+            "populated": populated,
         }
 
     results = await asyncio.gather(
@@ -852,6 +857,30 @@ async def _collect_redfish(server: Server) -> dict | None:
                     else None
                 )
 
+                # ── Slot summaries ────────────────────────────────────
+                # Memory: count populated vs total from collected modules
+                mem_populated = sum(1 for m in (mem_modules or []) if m.get("populated"))
+                mem_total = len(mem_modules or [])
+                # Try to get total from system MemorySummary
+                if mem_total == 0:
+                    mem_socks = mem_sum.get("TotalMemorySockets")
+                    if not mem_socks:
+                        mem_socks = proc_sum.get("TotalMemorySockets") or 0
+                    mem_total = max(mem_total, int(mem_socks) if mem_socks else 0)
+
+                # Drives: populate vs total
+                drv_populated = sum(1 for d in (drives or []) if d.get("capacityGB", 0) > 0 or d.get("model", "—") != "—")
+                drv_total = len(drives or [])
+                # Try to get DriveBayCount from chassis
+                try:
+                    chassis_res = await client.get(f"{base}/{chassis_path}")
+                    if chassis_res.status_code == 200:
+                        dbc = (chassis_res.json() or {}).get("DriveBayCount")
+                        if isinstance(dbc, (int, float)) and dbc > drv_total:
+                            drv_total = int(dbc)
+                except Exception:
+                    pass
+
                 return {
                     "power": (
                         "On" if (system.get("PowerState") == "On") else "Off"
@@ -872,6 +901,8 @@ async def _collect_redfish(server: Server) -> dict | None:
                     "memoryModules": mem_modules or None,
                     "drives": drives or None,
                     "recentLogs": logs or None,
+                    "memorySlotSummary": {"populated": mem_populated, "total": mem_total} if mem_total > 0 else None,
+                    "driveBaySummary": {"populated": drv_populated, "total": drv_total} if drv_total > 0 else None,
                 }
             finally:
                 # Always clean up the session so we don't hit BMC session
@@ -1192,4 +1223,6 @@ def snapshot_to_status(snap: BmcSnapshot) -> dict:
         "alerts": snap.alerts or [],
         "updatedAt": snap.collected_at.isoformat() if snap.collected_at else "",
         "bootProgress": "OSBootCompleted",
+        "memorySlotSummary": None,
+        "driveBaySummary": None,
     }
