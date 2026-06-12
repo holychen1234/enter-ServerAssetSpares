@@ -53,6 +53,48 @@ CACHE_TTL_SECONDS = 30
 HISTORY_MAX_POINTS = 12
 HISTORY_INTERVAL_LABEL = "5m"  # purely cosmetic — used for x-axis ticks
 
+# Known hardware models and their slot/bay counts.
+# Used as fallback when BMC Redfish doesn't report total counts.
+# Format: { normalized_model: { "memorySlots": N, "driveBays": M, "note": "" } }
+KNOWN_MODEL_SLOTS: dict[str, dict] = {
+    # ── Inspur ──
+    "nf5280m6": {"memorySlots": 16, "driveBays": 12},
+    "nf5280m5": {"memorySlots": 16, "driveBays": 12},
+    "nf5180m6": {"memorySlots": 12, "driveBays": 8},
+    # ── Dell ──
+    "poweredge r750": {"memorySlots": 16, "driveBays": 8},
+    "poweredge r750xa": {"memorySlots": 16, "driveBays": 10},
+    "poweredge r740": {"memorySlots": 16, "driveBays": 8},
+    "poweredge r740xd": {"memorySlots": 16, "driveBays": 24},
+    "poweredge r640": {"memorySlots": 16, "driveBays": 10},
+    "poweredge r650": {"memorySlots": 16, "driveBays": 8},
+    "poweredge r940": {"memorySlots": 48, "driveBays": 16},
+    # ── HPE ──
+    "proliant dl380 gen10": {"memorySlots": 24, "driveBays": 12},
+    "proliant dl380 gen11": {"memorySlots": 24, "driveBays": 12},
+    "proliant dl360 gen10": {"memorySlots": 24, "driveBays": 8},
+    # ── Lenovo ──
+    "thinksystem sr650": {"memorySlots": 16, "driveBays": 8},
+    "thinksystem sr630": {"memorySlots": 12, "driveBays": 8},
+    # ── Huawei ──
+    "fusionserver 2288h v5": {"memorySlots": 12, "driveBays": 8},
+    # ── XFusion / 超聚变 ──
+    "2288h v7": {"memorySlots": 16, "driveBays": 8},
+    "2288h v6": {"memorySlots": 16, "driveBays": 8},
+    # ── Supermicro ──
+    "as-4124gs-tnr": {"memorySlots": 32, "driveBays": 8},
+}
+
+# Substring-based model matching (for when exact model name varies)
+KNOWN_MODEL_SUBSTR: list[tuple[str, dict]] = [
+    ("nf5280", {"memorySlots": 16, "driveBays": 12}),
+    ("nf5180", {"memorySlots": 12, "driveBays": 8}),
+    ("poweredge r7", {"memorySlots": 16, "driveBays": 10}),
+    ("proliant dl", {"memorySlots": 24, "driveBays": 8}),
+    ("thinksystem sr", {"memorySlots": 16, "driveBays": 8}),
+    ("2288h v", {"memorySlots": 16, "driveBays": 8}),  # XFusion / Huawei
+]
+
 # Limit concurrent HTTP requests to a single BMC so we don't overwhelm
 # its management controller (many BMCs cap at 4–8 simultaneous sessions).
 _BMC_SEMAPHORE = asyncio.Semaphore(6)
@@ -941,6 +983,24 @@ async def _collect_redfish(server: Server) -> dict | None:
                 # Drives: populate vs total (same fallback strategy as memory)
                 drv_populated = sum(1 for d in (drives or []) if d.get("capacityGB", 0) > 0 or d.get("model", "—") != "—")
                 drv_total = len(drives or [])
+                # Infer total from drive naming pattern: Disk.Bay.{n}...
+                # If bays are sparse (e.g. Bay.0, Bay.2 but no Bay.1),
+                # total = max_bay_number + 1
+                try:
+                    max_bay = -1
+                    for d in (drives or []):
+                        name = d.get("name", "")
+                        # Try Disk.Bay.{n} pattern (Dell)
+                        m = re.search(r"Bay\.(\d+)", name)
+                        if not m:
+                            # Try Disk{n} or trailing number (XFusion / Inspur)
+                            m = re.search(r"(?:Disk|Bay|Slot)[\s\.]?(\d+)", name)
+                        if m:
+                            max_bay = max(max_bay, int(m.group(1)))
+                    if max_bay >= drv_total:
+                        drv_total = max_bay + 1
+                except Exception:
+                    pass
                 try:
                     chassis_res = await client.get(f"{base}/{chassis_path}")
                     if chassis_res.status_code == 200:
@@ -962,6 +1022,39 @@ async def _collect_redfish(server: Server) -> dict | None:
                                 pass
                 except Exception:
                     pass
+
+                # Final fallback: known model lookup table
+                model_key = (server.model or "").lower().strip()
+                known = KNOWN_MODEL_SLOTS.get(model_key)
+                if not known:
+                    for substr, info in KNOWN_MODEL_SUBSTR:
+                        if substr in model_key:
+                            known = info
+                            break
+                if known:
+                    if known.get("memorySlots") and mem_total < known["memorySlots"]:
+                        mem_total = known["memorySlots"]
+                        # Pad with synthetic empty entries
+                        existing_slots = {m.get("slot", "") for m in (mem_modules or [])}
+                        for i in range(mem_total - len(mem_modules or [])):
+                            slot_name = f"DIMM_A{chr(65 + i) if i < 26 else i}"
+                            base = slot_name
+                            dedup = 0
+                            while slot_name in existing_slots:
+                                dedup += 1
+                                slot_name = f"{base}_{dedup}"
+                            existing_slots.add(slot_name)
+                            mem_modules.append({
+                                "slot": slot_name,
+                                "model": "—",
+                                "sn": None,
+                                "capacityMiB": 0,
+                                "memoryType": "—",
+                                "status": "OK",
+                                "populated": False,
+                            })
+                    if known.get("driveBays") and drv_total < known["driveBays"]:
+                        drv_total = known["driveBays"]
 
                 return {
                     "power": (
@@ -1284,15 +1377,31 @@ def get_latest_snapshot(server_id: str) -> BmcSnapshot | None:
         db.close()
 
 
-def snapshot_to_status(snap: BmcSnapshot) -> dict:
+def snapshot_to_status(snap: BmcSnapshot, model: str = "") -> dict:
     """Convert a persisted snapshot back to the frontend BmcStatus shape."""
     mem_modules = snap.memory_modules or []
     drives = snap.drives or []
-    # Compute slot/bay summaries from the stored JSON data
+    # Compute slot/bay summaries from the stored JSON data.
+    # For old snapshots that don't have padded empty entries, try model lookup.
     mem_populated = sum(1 for m in mem_modules if m.get("populated", True))
-    mem_slot_summary = {"populated": mem_populated, "total": len(mem_modules)} if mem_modules else None
+    mem_total = len(mem_modules)
     drv_populated = sum(1 for d in drives if d.get("capacityGB", 0) > 0 or d.get("model", "—") != "—")
-    drv_bay_summary = {"populated": drv_populated, "total": len(drives)} if drives else None
+    drv_total = len(drives)
+    if model:
+        mkey = model.lower().strip()
+        known = KNOWN_MODEL_SLOTS.get(mkey)
+        if not known:
+            for substr, info in KNOWN_MODEL_SUBSTR:
+                if substr in mkey:
+                    known = info
+                    break
+        if known:
+            if known.get("memorySlots") and mem_total < known["memorySlots"]:
+                mem_total = known["memorySlots"]
+            if known.get("driveBays") and drv_total < known["driveBays"]:
+                drv_total = known["driveBays"]
+    mem_slot_summary = {"populated": mem_populated, "total": mem_total} if mem_modules or mem_total > 0 else None
+    drv_bay_summary = {"populated": drv_populated, "total": drv_total} if drives or drv_total > 0 else None
     return {
         "serverId": snap.server_id,
         "source": snap.source,
