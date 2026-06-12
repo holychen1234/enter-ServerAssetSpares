@@ -281,6 +281,14 @@ async def _redfish_storage_drives(
         drives = await _redfish_chassis_drives(client, base)
         if drives:
             logger.debug("redfish storage: got %d drives via Path 3 (Chassis/Drives)", len(drives))
+            return drives
+        # Path 4: Deep-drill Storage controllers (Inspur / some H3C). Some
+        # BMCs report controllers in /Systems/X/Storage but don't surface
+        # drives via the standard Members→Drives array. We fetch each
+        # controller and try Links.Drives or /Drives sub-path directly.
+        drives = await _redfish_storage_deep(client, base, system_path)
+        if drives:
+            logger.debug("redfish storage: got %d drives via Path 4 (Storage deep)", len(drives))
     except Exception:
         pass  # Storage isn't critical — keep returning what we have
     return drives
@@ -429,12 +437,13 @@ async def _redfish_chassis_drives(
                 continue
             d = dr.json() or {}
             cap_bytes = d.get("CapacityBytes") or 0
-            # Skip placeholder entries where the BMC reports null for all
-            # meaningful fields (e.g. Inspur / XFusion providing
-            # Chassis/Drives member stubs with no actual drive data).
+            # Skip placeholder entries: if the drive has no Model, no SN
+            # AND zero capacity, it's a stub. But if any one field is
+            # present, keep it — some Inspur BMCs report valid drives
+            # with zero capacity but have a model name.
             model = d.get("Model")
             sn = d.get("SerialNumber")
-            if cap_bytes == 0 and model is None and sn is None:
+            if not model and not sn and cap_bytes == 0:
                 continue
             drives.append(
                 {
@@ -448,6 +457,107 @@ async def _redfish_chassis_drives(
                     "status": ((d.get("Status") or {}).get("Health")) or "OK",
                 }
             )
+    except Exception:
+        pass
+    return drives
+
+
+async def _redfish_storage_deep(
+    client: httpx.AsyncClient, base: str, system_path: str
+) -> list[dict]:
+    """Path 4: Deep-drill each Storage controller for drives (Inspur / H3C).
+
+    Some BMCs report controllers under /Systems/X/Storage but do not
+    populate the Drives array on the collection-level members response.
+    We fetch each controller individually and look for drives in:
+      - ``Links/Drives`` (Inspur sometimes puts drives there)
+      - ``/Drives`` sub-path on each controller
+    """
+    drives: list[dict] = []
+    try:
+        coll = await client.get(f"{base}/{system_path}/Storage")
+        if coll.status_code != 200:
+            return drives
+        members = (coll.json() or {}).get("Members") or []
+        if not members:
+            return drives
+
+        async def _deep_drill(m) -> list[dict]:
+            href = m.get("@odata.id")
+            if not href:
+                return []
+            try:
+                ctrl = await client.get(f"{base}{href}")
+            except Exception:
+                return []
+            if ctrl.status_code != 200:
+                return []
+            ctrl_data = ctrl.json() or {}
+            found: list[dict] = []
+
+            # Try Links → Drives (Inspur / H3C sometimes use this)
+            for link_ref in (ctrl_data.get("Links") or {}).get("Drives") or []:
+                drive_href = link_ref.get("@odata.id")
+                if not drive_href:
+                    continue
+                try:
+                    dr = await client.get(f"{base}{drive_href}")
+                except Exception:
+                    continue
+                if dr.status_code != 200:
+                    continue
+                d = dr.json() or {}
+                cap_bytes = d.get("CapacityBytes") or 0
+                found.append({
+                    "name": d.get("Name") or d.get("Id") or "?",
+                    "model": d.get("Model") or "—",
+                    "sn": d.get("SerialNumber") or None,
+                    "capacityGB": round(cap_bytes / (1024**3), 0) if cap_bytes else 0,
+                    "mediaType": d.get("MediaType") or "—",
+                    "status": ((d.get("Status") or {}).get("Health")) or "OK",
+                })
+                continue
+
+            # Try /Drives sub-path on the controller
+            if not found:
+                try:
+                    dr_coll = await client.get(f"{base}{href}/Drives")
+                except Exception:
+                    return found
+                if dr_coll.status_code == 200:
+                    for dm in (dr_coll.json() or {}).get("Members") or []:
+                        dh = dm.get("@odata.id")
+                        if not dh:
+                            continue
+                        try:
+                            dr = await client.get(f"{base}{dh}")
+                        except Exception:
+                            continue
+                        if dr.status_code != 200:
+                            continue
+                        d = dr.json() or {}
+                        cap_bytes = d.get("CapacityBytes") or 0
+                        model = d.get("Model")
+                        sn = d.get("SerialNumber")
+                        if not model and not sn and cap_bytes == 0:
+                            continue
+                        found.append({
+                            "name": d.get("Name") or d.get("Id") or "?",
+                            "model": model or "—",
+                            "sn": sn or None,
+                            "capacityGB": round(cap_bytes / (1024**3), 0) if cap_bytes else 0,
+                            "mediaType": d.get("MediaType") or "—",
+                            "status": ((d.get("Status") or {}).get("Health")) or "OK",
+                        })
+            return found
+
+        results = await asyncio.gather(
+            *[_deep_drill(m) for m in members],
+            return_exceptions=True,
+        )
+        for r in results:
+            if isinstance(r, list):
+                drives.extend(r)
     except Exception:
         pass
     return drives
@@ -470,6 +580,23 @@ async def _redfish_memory_dims(
     except Exception:
         return dims
 
+    if not members:
+        # Fallback: some Inspur BMCs expose memory under
+        # /MemoryDomains/{domain}/Memory instead of /Memory directly.
+        try:
+            dm_coll = await client.get(f"{base}/{system_path}/MemoryDomains")
+            if dm_coll.status_code == 200:
+                for dm_member in (dm_coll.json() or {}).get("Members") or []:
+                    dm_href = dm_member.get("@odata.id")
+                    if not dm_href:
+                        continue
+                    dm_res = await client.get(f"{base}{dm_href}/Memory")
+                    if dm_res.status_code == 200:
+                        members = (dm_res.json() or {}).get("Members") or []
+                        if members:
+                            break
+        except Exception:
+            pass
     if not members:
         return dims
 
@@ -589,10 +716,13 @@ async def _redfish_session_auth(
 async def _redfish_delete_session(
     client: httpx.AsyncClient, base: str, session_uri: str
 ) -> None:
-    """DELETE a Redfish session to avoid hitting BMC session limits."""
+    """DELETE a Redfish session to avoid hitting BMC session limits.
+    Exceptions are logged but never propagated — session leaks are
+    tolerable, poll failures are not."""
     try:
         await client.delete(f"{base}{session_uri}")
-    except Exception:
+    except Exception as exc:
+        logger.debug("session DELETE failed for %s: %s", base, exc)
         pass
 
 
@@ -625,12 +755,15 @@ async def _collect_redfish(server: Server) -> dict | None:
                     _redfish_first_member(client, base, "Systems"),
                 )
                 if not chassis_path or not system_path:
-                    logger.warning(
-                        "redfish discovery failed for %s (manufacturer=%s)",
-                        server.id,
-                        server.manufacturer,
-                    )
-                    return None
+                    # Fallback: some BMCs (older XFusion, some Inspur) expose
+                    # Chassis/Systems at the root member index 1 but don't
+                    # list it in the collection Members array.
+                    if not chassis_path:
+                        chassis_path = "redfish/v1/Chassis/1"
+                        logger.info("chassis fallback → %s for %s", chassis_path, server.id)
+                    if not system_path:
+                        system_path = "redfish/v1/Systems/1"
+                        logger.info("system fallback → %s for %s", system_path, server.id)
 
                 thermal_res, power_res, system_res, drives, mem_modules, logs = (
                     await asyncio.gather(
