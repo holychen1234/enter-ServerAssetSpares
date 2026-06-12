@@ -151,6 +151,7 @@ def _simulate(server: Server) -> dict:
                 "capacityGB": 0,
                 "mediaType": "—",
                 "status": "Unknown" if is_offline else "—",
+                "formFactor": "unknown",
             }
         )
 
@@ -197,7 +198,12 @@ def _simulate(server: Server) -> dict:
             else None
         ),
         "memoryModules": [],
+        "memorySlots": {"total": 0, "populated": 0},
         "drives": drives,
+        "diskSlots": {
+            "total": disk_count if disk_count and disk_count > 0 else 0,
+            "populated": disk_count if disk_count and disk_count > 0 else 0,
+        },
         "recentLogs": recent_logs,
     }
 
@@ -394,6 +400,10 @@ async def _redfish_storage_simple(
             continue
         ss: dict = r.json() or {}
         for i, dev in enumerate(ss.get("Devices") or []):
+            # Skip absent / empty bays — they have no drive installed.
+            dev_state = ((dev.get("Status") or {}).get("State") or "").lower()
+            if dev_state == "absent":
+                continue
             cap_bytes = dev.get("CapacityBytes") or 0
             drives.append(
                 {
@@ -563,22 +573,195 @@ async def _redfish_storage_deep(
     return drives
 
 
+# ── Disk bay / slot total count helpers ─────────────────────────
+
+async def _redfish_disk_total_slots(
+    client: httpx.AsyncClient, base: str, system_path: str, chassis_path: str
+) -> int:
+    """Return the physical disk bay / slot total from Redfish.
+
+    Tries in order:
+    1. SimpleStorage → count all Devices (including ``State: Absent``)
+    2. Modern Storage → sum ``Drives@odata.count`` across controllers
+    3. Chassis/Drives → ``Members@odata.count``
+    4. Fallback → 0 (caller uses len(drives) as last resort)
+    """
+    # Path 1: SimpleStorage (includes absent devices)
+    try:
+        coll = await client.get(f"{base}/{system_path}/SimpleStorage")
+        if coll.status_code == 200:
+            members = (coll.json() or {}).get("Members") or []
+            total = 0
+            for m in members:
+                href = m.get("@odata.id")
+                if not href:
+                    continue
+                r = await client.get(f"{base}{href}")
+                if r.status_code == 200:
+                    total += len((r.json() or {}).get("Devices") or [])
+            if total > 0:
+                return total
+    except Exception:
+        pass
+
+    # Path 2: Modern Storage — sum Drives@odata.count per controller
+    try:
+        coll = await client.get(f"{base}/{system_path}/Storage")
+        if coll.status_code == 200:
+            members = (coll.json() or {}).get("Members") or []
+            total = 0
+            for m in members:
+                href = m.get("@odata.id")
+                if not href:
+                    continue
+                ctrl = await client.get(f"{base}{href}")
+                if ctrl.status_code == 200:
+                    ctrl_data = ctrl.json() or {}
+                    # Drives collection on the controller
+                    drives_coll = ctrl_data.get("Drives@odata.count")
+                    if isinstance(drives_coll, int) and drives_coll > 0:
+                        total += drives_coll
+                    else:
+                        drives_list = ctrl_data.get("Drives") or []
+                        total += len(drives_list)
+            if total > 0:
+                return total
+    except Exception:
+        pass
+
+    # Path 3: Chassis/Drives — Members@odata.count
+    if chassis_path:
+        try:
+            coll = await client.get(f"{base}/{chassis_path}/Drives")
+            if coll.status_code == 200:
+                count = (coll.json() or {}).get("Members@odata.count")
+                if isinstance(count, int) and count > 0:
+                    return count
+        except Exception:
+            pass
+
+    return 0
+
+
+# ── Chassis metadata (for disk form factor inference) ──────────
+
+async def _redfish_chassis_spec(
+    client: httpx.AsyncClient, base: str, chassis_path: str
+) -> dict:
+    """Return a small dict of chassis physical metadata.
+
+    Keys returned (when available): ``heightMm``, ``model``, ``chassisType``."""
+    spec: dict = {}
+    if not chassis_path:
+        return spec
+    try:
+        r = await client.get(f"{base}/{chassis_path}")
+        if r.status_code != 200:
+            return spec
+        d = r.json() or {}
+        if isinstance(d.get("HeightMm"), (int, float)):
+            spec["heightMm"] = float(d["HeightMm"])
+        if isinstance(d.get("Model"), str):
+            spec["model"] = d["Model"]
+        if isinstance(d.get("ChassisType"), str):
+            spec["chassisType"] = d["ChassisType"]
+    except Exception:
+        pass
+    return spec
+
+
+# ── Drive form factor inference ─────────────────────────────────
+
+# Well-known model name patterns that strongly indicate 3.5" drives.
+# Most enterprise 3.5" HDDs use "LFF" (Large Form Factor) naming;
+# 2.5" HDDs/SSDs use "SFF" (Small Form Factor).
+_MODEL_3_5_PATTERNS = [
+    "LFF",               # Dell / HPE convention
+    "ST[48]000NM",       # Seagate Exos 3.5" (4TB+)
+    "ST[48]000VX",       # Seagate SkyHawk 3.5" surveillance
+    "ST[1-9][0-9]00NM",  # Seagate Enterprise Capacity 3.5"
+    "WD[48]00PUR",       # WD Purple 3.5" surveillance
+    "WD[1-9][0-9]00EF",  # WD Red Pro / Gold 3.5"
+    "MG0[4-9]",          # Toshiba MG Series 3.5" enterprise
+    "HUH72",             # HGST Ultrastar He10/He12 3.5"
+    "HUS72",             # HGST Ultrastar 7K2 3.5"
+]
+
+
+def _infer_drive_form_factor(
+    drive: dict, chassis_spec: dict | None = None
+) -> str:
+    """Infer the physical drive form factor (2.5\" or 3.5\") from available data.
+
+    Heuristic priority:
+    1. Model name contains "LFF" → 3.5\", "SFF" → 2.5\"
+    2. Model matches known 3.5\" patterns (Seagate/WD/Toshiba/HGST enterprise)
+    3. Capacity < 600 GB mechanical HDD → likely 2.5\" (laptop/enterprise SFF)
+    4. Chassis HeightMm ≤ 45 mm (1U) → all bays are 2.5\"
+    5. SSD → almost always 2.5\" (or M.2/U.2); NVMe is 2.5\" or smaller
+    6. Fallback → \"unknown\"
+    """
+    model = (drive.get("model") or "").strip()
+    media = (drive.get("mediaType") or "").strip()
+    cap_gb = drive.get("capacityGB") or 0
+
+    # 1. Explicit LFF / SFF in model name
+    if "LFF" in model.upper():
+        return "LFF"  # 3.5"
+    if "SFF" in model.upper():
+        return "SFF"  # 2.5"
+
+    # 2. Known 3.5" enterprise HDD model patterns
+    import re as _re
+    for pat in _MODEL_3_5_PATTERNS:
+        if _re.search(pat, model, _re.IGNORECASE):
+            return "LFF"
+
+    # 3. Capacity heuristic: ≥ 6 TB mechanical drives are almost exclusively 3.5"
+    #    (2.5" HDDs top out at ~5 TB for consumer, 2.4 TB for enterprise 10K/15K)
+    if cap_gb >= 6000 and media.upper() == "HDD":
+        return "LFF"
+
+    # 4. Chassis height: 1U chassis (≤ 45 mm) can only fit 2.5" drives
+    if chassis_spec and isinstance(chassis_spec.get("heightMm"), (int, float)):
+        if chassis_spec["heightMm"] <= 45:
+            return "SFF"
+
+    # 5. SSD / NVMe → always 2.5" or smaller
+    if media.upper() in ("SSD", "NVME"):
+        return "SFF"
+
+    # 6. Unknown
+    return "unknown"
+
+
 async def _redfish_memory_dims(
     client: httpx.AsyncClient, base: str, system_path: str
-) -> list[dict]:
+) -> tuple[list[dict], int]:
     """Discover individual DIMMs under ``/Systems/X/Memory``.
+
+    Returns ``(dimms, total_slots)`` where ``total_slots`` is the number of
+    physical DIMM slots reported by the BMC.  ``Members@odata.count`` is the
+    primary source; when absent (older BMCs) we count members directly,
+    including those with ``State: Absent``.
 
     All DIMM detail requests are fetched in parallel so the full set
     completes within the per-request timeout window (previously serial
     enumeration could easily exceed 30 s on servers with 8+ DIMMs)."""
     dims: list[dict] = []
+    total_slots: int = 0
     try:
         coll = await client.get(f"{base}/{system_path}/Memory")
         if coll.status_code != 200:
-            return dims
-        members = (coll.json() or {}).get("Members") or []
+            return dims, 0
+        coll_data = coll.json() or {}
+        members = coll_data.get("Members") or []
+        # Primary source for total slot count — many BMCs include
+        # empty/Absent slots in the collection so this is the physical
+        # slot count, not just the populated count.
+        total_slots = coll_data.get("Members@odata.count", len(members))
     except Exception:
-        return dims
+        return dims, 0
 
     if not members:
         # Fallback: some Inspur BMCs expose memory under
@@ -592,13 +775,15 @@ async def _redfish_memory_dims(
                         continue
                     dm_res = await client.get(f"{base}{dm_href}/Memory")
                     if dm_res.status_code == 200:
-                        members = (dm_res.json() or {}).get("Members") or []
+                        dm_data = dm_res.json() or {}
+                        members = dm_data.get("Members") or []
+                        total_slots = dm_data.get("Members@odata.count", len(members))
                         if members:
                             break
         except Exception:
             pass
     if not members:
-        return dims
+        return dims, total_slots
 
     async def _get_dim(m) -> dict | None:
         href = m.get("@odata.id")
@@ -612,6 +797,10 @@ async def _redfish_memory_dims(
         if r.status_code != 200:
             return None
         d = r.json() or {}
+        # Skip absent/empty DIMM slots — they have no DIMM installed.
+        dimm_state = ((d.get("Status") or {}).get("State") or "").lower()
+        if dimm_state == "absent":
+            return None
         loc = d.get("DeviceLocator") or d.get("Name") or d.get("Id") or "?"
         capacity_mib = d.get("CapacityMiB") or 0
         return {
@@ -631,7 +820,11 @@ async def _redfish_memory_dims(
         if isinstance(result, dict):
             dims.append(result)
 
-    return dims
+    # If total_slots is still 0, use len(members) as fallback
+    if total_slots == 0:
+        total_slots = len(members)
+
+    return dims, total_slots
 
 
 async def _redfish_recent_logs(
@@ -765,7 +958,7 @@ async def _collect_redfish(server: Server) -> dict | None:
                         system_path = "redfish/v1/Systems/1"
                         logger.info("system fallback → %s for %s", system_path, server.id)
 
-                thermal_res, power_res, system_res, drives, mem_modules, logs = (
+                thermal_res, power_res, system_res, drives, mem_result, logs = (
                     await asyncio.gather(
                         client.get(f"{base}/{chassis_path}/Thermal"),
                         client.get(f"{base}/{chassis_path}/Power"),
@@ -775,6 +968,14 @@ async def _collect_redfish(server: Server) -> dict | None:
                         _redfish_recent_logs(client, base),
                     )
                 )
+
+                # Unpack memory tuple: (dimms, total_slots)
+                if isinstance(mem_result, tuple) and len(mem_result) == 2:
+                    mem_modules, mem_total_slots = mem_result
+                else:
+                    # Pre-existing code that returns list only (defensive)
+                    mem_modules = mem_result if isinstance(mem_result, list) else []
+                    mem_total_slots = len(mem_modules)
 
                 if thermal_res.status_code != 200 or system_res.status_code != 200:
                     logger.warning(
@@ -852,6 +1053,41 @@ async def _collect_redfish(server: Server) -> dict | None:
                     else None
                 )
 
+                # ── Chassis metadata + disk bay count ──────────
+                chassis_spec = await _redfish_chassis_spec(
+                    client, base, chassis_path
+                )
+                disk_total_slots = await _redfish_disk_total_slots(
+                    client, base, system_path, chassis_path
+                )
+                if disk_total_slots == 0:
+                    disk_total_slots = len(drives or [])
+
+                # ── Enrich drives with physical form factor ────
+                drives_enriched: list[dict] | None = None
+                if drives:
+                    drives_enriched = []
+                    for d in drives:
+                        d2 = dict(d)  # immutable copy
+                        d2["formFactor"] = _infer_drive_form_factor(
+                            d2, chassis_spec
+                        )
+                        drives_enriched.append(d2)
+
+                # ── Memory slot count ──────────────────────────
+                mem_populated = len(mem_modules or [])
+                if mem_total_slots < mem_populated:
+                    mem_total_slots = mem_populated
+
+                memory_slots = {
+                    "total": mem_total_slots,
+                    "populated": mem_populated,
+                }
+                disk_slots = {
+                    "total": disk_total_slots,
+                    "populated": len(drives or []),
+                }
+
                 return {
                     "power": (
                         "On" if (system.get("PowerState") == "On") else "Off"
@@ -870,7 +1106,9 @@ async def _collect_redfish(server: Server) -> dict | None:
                     "processorSummary": processor,
                     "memorySummary": memory,
                     "memoryModules": mem_modules or None,
-                    "drives": drives or None,
+                    "memorySlots": memory_slots,
+                    "drives": drives_enriched or drives or None,
+                    "diskSlots": disk_slots,
                     "recentLogs": logs or None,
                 }
             finally:
@@ -1138,7 +1376,9 @@ async def collect_and_save(server: Server) -> BmcSnapshot | None:
             processor_summary=payload.get("processorSummary"),
             memory_summary=payload.get("memorySummary"),
             memory_modules=payload.get("memoryModules"),
+            memory_slots=payload.get("memorySlots"),
             drives=payload.get("drives"),
+            disk_slots=payload.get("diskSlots"),
             fans=payload.get("fans"),
             psus=payload.get("psus"),
             recent_logs=payload.get("recentLogs"),
@@ -1173,6 +1413,26 @@ def get_latest_snapshot(server_id: str) -> BmcSnapshot | None:
 
 def snapshot_to_status(snap: BmcSnapshot) -> dict:
     """Convert a persisted snapshot back to the frontend BmcStatus shape."""
+    # Compute memory/disk slot counts with backwards-compatible fallback
+    mem_modules = snap.memory_modules or []
+    drives = snap.drives or []
+
+    if snap.memory_slots:
+        memory_slots = snap.memory_slots
+    else:
+        memory_slots = {
+            "total": len(mem_modules),
+            "populated": len(mem_modules),
+        }
+
+    if snap.disk_slots:
+        disk_slots = snap.disk_slots
+    else:
+        disk_slots = {
+            "total": len(drives),
+            "populated": len(drives),
+        }
+
     return {
         "serverId": snap.server_id,
         "source": snap.source,
@@ -1183,8 +1443,10 @@ def snapshot_to_status(snap: BmcSnapshot) -> dict:
         "inletTempC": snap.inlet_temp_c or 0,
         "processorSummary": snap.processor_summary,
         "memorySummary": snap.memory_summary,
-        "memoryModules": snap.memory_modules or [],
-        "drives": snap.drives or [],
+        "memoryModules": mem_modules,
+        "memorySlots": memory_slots,
+        "drives": drives,
+        "diskSlots": disk_slots,
         "fans": snap.fans or [],
         "psus": snap.psus or [],
         "recentLogs": snap.recent_logs or [],

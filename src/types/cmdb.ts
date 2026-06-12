@@ -93,6 +93,8 @@ export interface BmcStatus {
   processorSummary?: { count: number; model: string };
   /** Memory summary from BMC (Redfish MemorySummary). */
   memorySummary?: { totalGiB: number };
+  /** Memory slot utilization: total physical slots vs populated slots. */
+  memorySlots?: { total: number; populated: number };
   /** Individual DIMM modules discovered via Redfish /Systems/X/Memory. */
   memoryModules?: {
     slot: string;
@@ -102,6 +104,8 @@ export interface BmcStatus {
     memoryType: string;
     status: string;
   }[];
+  /** Disk slot utilization: total physical bays vs populated bays. */
+  diskSlots?: { total: number; populated: number };
   /** Storage drives discovered via Redfish. */
   drives?: {
     name: string;
@@ -110,6 +114,8 @@ export interface BmcStatus {
     capacityGB: number;
     mediaType: string;
     status: string;
+    /** Physical form factor: "SFF" (2.5"), "LFF" (3.5"), or "unknown". */
+    formFactor?: string;
   }[];
   /** Recent BMC log entries (Redfish LogServices). */
   recentLogs?: {

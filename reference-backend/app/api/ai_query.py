@@ -378,13 +378,17 @@ async def get_server_bmc_status(
             }
             for f in (status.get("fans") or [])
         ],
-        # memory (total + per-DIMM detail)
+        # memory (total + per-DIMM detail + slot utilization)
         "memoryTotalGiB": (
             status.get("memorySummary", {}).get("totalGiB")
             if status.get("memorySummary")
             else None
         ),
         "memoryModuleCount": len(status.get("memoryModules") or []),
+        "memorySlots": status.get("memorySlots") or {
+            "total": len(status.get("memoryModules") or []),
+            "populated": len(status.get("memoryModules") or []),
+        },
         "memoryModules": [
             {
                 "slot": m["slot"],
@@ -396,8 +400,12 @@ async def get_server_bmc_status(
             }
             for m in (status.get("memoryModules") or [])
         ],
-        # disks
+        # disks (with slot utilization and form factor)
         "diskCount": len(status.get("drives") or []),
+        "diskSlots": status.get("diskSlots") or {
+            "total": len(status.get("drives") or []),
+            "populated": len(status.get("drives") or []),
+        },
         "disks": [
             {
                 "name": d.get("name"),
@@ -405,6 +413,7 @@ async def get_server_bmc_status(
                 "sn": d.get("sn"),
                 "capacityGB": d.get("capacityGB"),
                 "mediaType": d.get("mediaType"),
+                "formFactor": d.get("formFactor", "unknown"),
                 "status": d.get("status"),
             }
             for d in (status.get("drives") or [])
