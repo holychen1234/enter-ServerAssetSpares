@@ -53,6 +53,16 @@ CACHE_TTL_SECONDS = 30
 HISTORY_MAX_POINTS = 12
 HISTORY_INTERVAL_LABEL = "5m"  # purely cosmetic — used for x-axis ticks
 
+# Short timeout used for probing Redfish collection paths (e.g. "does
+# /Storage or /SimpleStorage exist?").  These run sequentially so a long
+# timeout on each would add up quickly when the BMC is unreachable.
+_DISCOVERY_TIMEOUT = 1.5  # seconds — enough for a responsive BMC on LAN
+
+# When a Redfish poll fails, don't retry the same BMC for this many seconds
+# (even with force_refresh).  Prevents multiple sequential collect_and_save
+# calls from each wasting DISCOVERY_TIMEOUT on an unreachable BMC.
+_COLLECT_FAIL_COOLDOWN = 60  # seconds
+
 # Limit concurrent HTTP requests to a single BMC so we don't overwhelm
 # its management controller (many BMCs cap at 4–8 simultaneous sessions).
 _BMC_SEMAPHORE = asyncio.Semaphore(6)
@@ -78,6 +88,7 @@ class _CacheEntry:
 
 _status_cache: dict[str, _CacheEntry] = {}
 _history: dict[str, list[_Sample]] = {}
+_last_fail_time: dict[str, float] = {}
 
 
 def _now_iso() -> str:
@@ -230,9 +241,15 @@ async def _redfish_first_member(
     BMC vendors disagree on naming (``/Chassis/1``, ``/Chassis/System.Embedded.1``,
     ``/Systems/server-1``, ...) so we always read the collection first instead
     of hard-coding ``/1``.
+
+    Uses a short timeout because this is a lightweight collection probe —
+    not a detailed resource fetch.
     """
     try:
-        r = await client.get(f"{base}/redfish/v1/{collection}")
+        r = await client.get(
+            f"{base}/redfish/v1/{collection}",
+            timeout=_DISCOVERY_TIMEOUT,
+        )
         if r.status_code != 200:
             return None
         members = (r.json() or {}).get("Members") or []
@@ -310,7 +327,10 @@ async def _redfish_storage_modern(
     with 9+ drives behind a single PCIE2_RAID controller)."""
     drives: list[dict] = []
     try:
-        storage_coll = await client.get(f"{base}/{system_path}/Storage")
+        storage_coll = await client.get(
+            f"{base}/{system_path}/Storage",
+            timeout=_DISCOVERY_TIMEOUT,
+        )
     except Exception:
         return drives
     if storage_coll.status_code != 200:
@@ -387,8 +407,14 @@ async def _redfish_storage_simple(
 
     Devices are embedded inline — no separate per-drive HTTP request needed."""
     drives: list[dict] = []
-    coll = await client.get(f"{base}/{system_path}/SimpleStorage")
-    if coll.status_code != 200:
+    try:
+        coll = await client.get(
+            f"{base}/{system_path}/SimpleStorage",
+            timeout=_DISCOVERY_TIMEOUT,
+        )
+        if coll.status_code != 200:
+            return drives
+    except Exception:
         return drives
     members = (coll.json() or {}).get("Members") or []
     for m in members:
@@ -434,7 +460,10 @@ async def _redfish_chassis_drives(
     if not chassis_path:
         return drives
     try:
-        coll = await client.get(f"{base}/{chassis_path}/Drives")
+        coll = await client.get(
+            f"{base}/{chassis_path}/Drives",
+            timeout=_DISCOVERY_TIMEOUT,
+        )
         if coll.status_code != 200:
             return drives
         members = (coll.json() or {}).get("Members") or []
@@ -485,7 +514,10 @@ async def _redfish_storage_deep(
     """
     drives: list[dict] = []
     try:
-        coll = await client.get(f"{base}/{system_path}/Storage")
+        coll = await client.get(
+            f"{base}/{system_path}/Storage",
+            timeout=_DISCOVERY_TIMEOUT,
+        )
         if coll.status_code != 200:
             return drives
         members = (coll.json() or {}).get("Members") or []
@@ -588,7 +620,10 @@ async def _redfish_disk_total_slots(
     """
     # Path 1: SimpleStorage (includes absent devices)
     try:
-        coll = await client.get(f"{base}/{system_path}/SimpleStorage")
+        coll = await client.get(
+            f"{base}/{system_path}/SimpleStorage",
+            timeout=_DISCOVERY_TIMEOUT,
+        )
         if coll.status_code == 200:
             members = (coll.json() or {}).get("Members") or []
             total = 0
@@ -596,7 +631,7 @@ async def _redfish_disk_total_slots(
                 href = m.get("@odata.id")
                 if not href:
                     continue
-                r = await client.get(f"{base}{href}")
+                r = await client.get(f"{base}{href}", timeout=_DISCOVERY_TIMEOUT)
                 if r.status_code == 200:
                     total += len((r.json() or {}).get("Devices") or [])
             if total > 0:
@@ -606,7 +641,10 @@ async def _redfish_disk_total_slots(
 
     # Path 2: Modern Storage — sum Drives@odata.count per controller
     try:
-        coll = await client.get(f"{base}/{system_path}/Storage")
+        coll = await client.get(
+            f"{base}/{system_path}/Storage",
+            timeout=_DISCOVERY_TIMEOUT,
+        )
         if coll.status_code == 200:
             members = (coll.json() or {}).get("Members") or []
             total = 0
@@ -614,10 +652,9 @@ async def _redfish_disk_total_slots(
                 href = m.get("@odata.id")
                 if not href:
                     continue
-                ctrl = await client.get(f"{base}{href}")
+                ctrl = await client.get(f"{base}{href}", timeout=_DISCOVERY_TIMEOUT)
                 if ctrl.status_code == 200:
                     ctrl_data = ctrl.json() or {}
-                    # Drives collection on the controller
                     drives_coll = ctrl_data.get("Drives@odata.count")
                     if isinstance(drives_coll, int) and drives_coll > 0:
                         total += drives_coll
@@ -632,7 +669,10 @@ async def _redfish_disk_total_slots(
     # Path 3: Chassis/Drives — Members@odata.count
     if chassis_path:
         try:
-            coll = await client.get(f"{base}/{chassis_path}/Drives")
+            coll = await client.get(
+                f"{base}/{chassis_path}/Drives",
+                timeout=_DISCOVERY_TIMEOUT,
+            )
             if coll.status_code == 200:
                 count = (coll.json() or {}).get("Members@odata.count")
                 if isinstance(count, int) and count > 0:
@@ -655,7 +695,7 @@ async def _redfish_chassis_spec(
     if not chassis_path:
         return spec
     try:
-        r = await client.get(f"{base}/{chassis_path}")
+        r = await client.get(f"{base}/{chassis_path}", timeout=_DISCOVERY_TIMEOUT)
         if r.status_code != 200:
             return spec
         d = r.json() or {}
@@ -751,7 +791,10 @@ async def _redfish_memory_dims(
     dims: list[dict] = []
     total_slots: int = 0
     try:
-        coll = await client.get(f"{base}/{system_path}/Memory")
+        coll = await client.get(
+            f"{base}/{system_path}/Memory",
+            timeout=_DISCOVERY_TIMEOUT,
+        )
         if coll.status_code != 200:
             return dims, 0
         coll_data = coll.json() or {}
@@ -767,13 +810,19 @@ async def _redfish_memory_dims(
         # Fallback: some Inspur BMCs expose memory under
         # /MemoryDomains/{domain}/Memory instead of /Memory directly.
         try:
-            dm_coll = await client.get(f"{base}/{system_path}/MemoryDomains")
+            dm_coll = await client.get(
+                f"{base}/{system_path}/MemoryDomains",
+                timeout=_DISCOVERY_TIMEOUT,
+            )
             if dm_coll.status_code == 200:
                 for dm_member in (dm_coll.json() or {}).get("Members") or []:
                     dm_href = dm_member.get("@odata.id")
                     if not dm_href:
                         continue
-                    dm_res = await client.get(f"{base}{dm_href}/Memory")
+                    dm_res = await client.get(
+                        f"{base}{dm_href}/Memory",
+                        timeout=_DISCOVERY_TIMEOUT,
+                    )
                     if dm_res.status_code == 200:
                         dm_data = dm_res.json() or {}
                         members = dm_data.get("Members") or []
@@ -833,7 +882,10 @@ async def _redfish_recent_logs(
     """Read the last few entries from the first Manager LogService."""
     entries: list[dict] = []
     try:
-        mgr_coll = await client.get(f"{base}/redfish/v1/Managers")
+        mgr_coll = await client.get(
+            f"{base}/redfish/v1/Managers",
+            timeout=_DISCOVERY_TIMEOUT,
+        )
         if mgr_coll.status_code != 200:
             return entries
         mgr_members = (mgr_coll.json() or {}).get("Members") or []
@@ -842,7 +894,10 @@ async def _redfish_recent_logs(
         mgr_href = mgr_members[0].get("@odata.id")
         if not mgr_href:
             return entries
-        ls_coll = await client.get(f"{base}{mgr_href}/LogServices")
+        ls_coll = await client.get(
+            f"{base}{mgr_href}/LogServices",
+            timeout=_DISCOVERY_TIMEOUT,
+        )
         if ls_coll.status_code != 200:
             return entries
         ls_members = (ls_coll.json() or {}).get("Members") or []
@@ -851,7 +906,10 @@ async def _redfish_recent_logs(
         ls_href = ls_members[0].get("@odata.id")
         if not ls_href:
             return entries
-        ent_coll = await client.get(f"{base}{ls_href}/Entries?$top=10")
+        ent_coll = await client.get(
+            f"{base}{ls_href}/Entries?$top=10",
+            timeout=_DISCOVERY_TIMEOUT,
+        )
         if ent_coll.status_code != 200:
             return entries
         for e in (ent_coll.json() or {}).get("Members") or []:
@@ -880,6 +938,7 @@ async def _redfish_session_auth(
         r = await client.post(
             f"{base}/redfish/v1/SessionService/Sessions",
             json={"UserName": user, "Password": password},
+            timeout=_DISCOVERY_TIMEOUT,
         )
         if r.status_code in (200, 201):
             token = r.headers.get("X-Auth-Token")
@@ -960,9 +1019,9 @@ async def _collect_redfish(server: Server) -> dict | None:
 
                 thermal_res, power_res, system_res, drives, mem_result, logs = (
                     await asyncio.gather(
-                        client.get(f"{base}/{chassis_path}/Thermal"),
-                        client.get(f"{base}/{chassis_path}/Power"),
-                        client.get(f"{base}/{system_path}"),
+                        client.get(f"{base}/{chassis_path}/Thermal", timeout=_DISCOVERY_TIMEOUT),
+                        client.get(f"{base}/{chassis_path}/Power", timeout=_DISCOVERY_TIMEOUT),
+                        client.get(f"{base}/{system_path}", timeout=_DISCOVERY_TIMEOUT),
                         _redfish_storage_drives(client, base, system_path),
                         _redfish_memory_dims(client, base, system_path),
                         _redfish_recent_logs(client, base),
@@ -1256,8 +1315,13 @@ async def get_status(server: Server, *, force_refresh: bool = False) -> dict:
     sim = _simulate(server)
     is_offline = server.status in ("offline", "retired")
 
+    # Cooldown: don't retry a BMC that recently failed — each attempt wastes
+    # DISCOVERY_TIMEOUT × N_paths on an unreachable host.
+    last_fail = _last_fail_time.get(server.id, 0)
+    in_cooldown = (time.time() - last_fail) < _COLLECT_FAIL_COOLDOWN
+
     live: dict | None = None
-    if not is_offline:
+    if not is_offline and not in_cooldown:
         if server.bmc_protocol == "redfish":
             live = await _collect_redfish(server)
         elif server.bmc_protocol == "ipmi":
@@ -1304,6 +1368,10 @@ async def get_status(server: Server, *, force_refresh: bool = False) -> dict:
         merged["updatedAt"] = _now_iso()
         payload = merged
     else:
+        # Record the failure so we don't hammer an unreachable BMC.
+        if not is_offline and not in_cooldown:
+            _last_fail_time[server.id] = time.time()
+
         # Degrade — clearly mark as simulated so the UI shows the badge
         sim["history"] = _history_payload(server.id, sim["history"])
         if is_offline:

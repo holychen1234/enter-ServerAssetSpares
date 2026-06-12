@@ -217,8 +217,10 @@ async def server_bmc(
     if snap:
         return {**bmc_svc.snapshot_to_status(snap), "lastCollectedAt": snap.collected_at.isoformat()}
 
-    # Last resort: live one-off without persistence (BMC totally unreachable).
-    status = await bmc_svc.get_status(s, force_refresh=True)
+    # Last resort: live one-off.  collect_and_save above already called
+    # get_status(force_refresh=True) which populated the cache — use it
+    # instead of skipping the cache and hitting the unreachable BMC again.
+    status = await bmc_svc.get_status(s)
     return {**status, "lastCollectedAt": None}
 
 
