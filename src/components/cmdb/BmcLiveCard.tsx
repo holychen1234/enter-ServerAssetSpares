@@ -26,7 +26,16 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { toDate } from "@/lib/time";
+
+/** Parse ISO string, treating naive (no-timezone) strings as UTC.
+ *  Backend may omit timezone suffix on DB-persisted timestamps.
+ *  Without this, `new Date("...")` interprets naive strings as
+ *  local time (browser timezone), breaking the UTC→Asia/Shanghai conversion. */
+function toDate(s: string): Date {
+  return /[+-]\d{2}:\d{2}$/.test(s) || s.endsWith("Z")
+    ? new Date(s)
+    : new Date(s + "Z");
+}
 
 interface Props {
   status: BmcStatus;
@@ -166,20 +175,6 @@ export function BmcLiveCard({ status, loading, itemSnMap }: Props) {
                   </span>
                 )}
               </div>
-              {status.memorySlots && status.memorySlots.total > 0 && (
-                <div className="mt-2 space-y-1">
-                  <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-                    <span>插槽占用</span>
-                    <span className="font-mono">
-                      {status.memorySlots.populated} / {status.memorySlots.total}
-                    </span>
-                  </div>
-                  <Progress
-                    value={(status.memorySlots.populated / status.memorySlots.total) * 100}
-                    className="h-1.5"
-                  />
-                </div>
-              )}
             </div>
           ) : (
             <div className="rounded-lg border border-border bg-muted/40 px-3 py-3 text-sm text-muted-foreground">
@@ -242,18 +237,6 @@ export function BmcLiveCard({ status, loading, itemSnMap }: Props) {
               <span className="text-xs font-normal text-muted-foreground">
                 共 {status.drives.length} 块
               </span>
-              {status.diskSlots && status.diskSlots.total > 0 && (
-                <>
-                  <span className="text-xs font-normal text-muted-foreground">·</span>
-                  <span className="text-xs font-normal text-muted-foreground">
-                    槽位 {status.diskSlots.populated} / {status.diskSlots.total}
-                  </span>
-                  <Progress
-                    value={(status.diskSlots.populated / status.diskSlots.total) * 100}
-                    className="h-1.5 w-20"
-                  />
-                </>
-              )}
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
@@ -277,18 +260,6 @@ export function BmcLiveCard({ status, loading, itemSnMap }: Props) {
                         {d.name}
                       </span>
                       <span className="text-xs text-muted-foreground">{d.mediaType}</span>
-                      {d.formFactor && d.formFactor !== "unknown" && (
-                        <span
-                          className={
-                            "inline-block rounded border px-1.5 py-0.5 text-[10px] font-medium " +
-                            (d.formFactor === "LFF"
-                              ? "border-warning/40 bg-warning/10 text-warning"
-                              : "border-info/40 bg-info/10 text-info")
-                          }
-                        >
-                          {d.formFactor === "LFF" ? "3.5\"" : "2.5\""}
-                        </span>
-                      )}
                     </div>
                     <p className="text-xs text-muted-foreground">
                       {d.model}

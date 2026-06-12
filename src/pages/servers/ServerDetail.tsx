@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/cmdb/StatusBadge";
 import { BmcLiveCard } from "@/components/cmdb/BmcLiveCard";
 import { ArrowLeft, Server as ServerIcon, RefreshCw } from "lucide-react";
+import { toast } from "sonner";
 
 export default function ServerDetail() {
   const { id = "" } = useParams();
@@ -99,7 +100,17 @@ export default function ServerDetail() {
               variant="outline"
               size="sm"
               disabled={isFetching}
-              onClick={() => refreshBmcStatus(id).then(() => refetch())}
+              onClick={() => {
+                refreshBmcStatus(id)
+                  .then(() => refetch())
+                  .catch((e: unknown) => {
+                    const msg = e instanceof Error ? e.message : "BMC 刷新失败";
+                    toast.error(msg);
+                    // Still refetch — the backend may have a stale
+                    // snapshot or cached reading to fall back on.
+                    refetch();
+                  });
+              }}
             >
               <RefreshCw className={`mr-1 h-4 w-4 ${isFetching ? "animate-spin" : ""}`} /> 刷新 BMC
             </Button>
