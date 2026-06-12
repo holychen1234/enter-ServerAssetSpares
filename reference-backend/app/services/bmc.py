@@ -53,48 +53,6 @@ CACHE_TTL_SECONDS = 30
 HISTORY_MAX_POINTS = 12
 HISTORY_INTERVAL_LABEL = "5m"  # purely cosmetic — used for x-axis ticks
 
-# Known hardware models and their slot/bay counts.
-# Used as fallback when BMC Redfish doesn't report total counts.
-# Format: { normalized_model: { "memorySlots": N, "driveBays": M, "note": "" } }
-KNOWN_MODEL_SLOTS: dict[str, dict] = {
-    # ── Inspur ──
-    "nf5280m6": {"memorySlots": 16, "driveBays": 12},
-    "nf5280m5": {"memorySlots": 16, "driveBays": 12},
-    "nf5180m6": {"memorySlots": 12, "driveBays": 8},
-    # ── Dell ──
-    "poweredge r750": {"memorySlots": 16, "driveBays": 8},
-    "poweredge r750xa": {"memorySlots": 16, "driveBays": 10},
-    "poweredge r740": {"memorySlots": 16, "driveBays": 8},
-    "poweredge r740xd": {"memorySlots": 16, "driveBays": 24},
-    "poweredge r640": {"memorySlots": 16, "driveBays": 10},
-    "poweredge r650": {"memorySlots": 16, "driveBays": 8},
-    "poweredge r940": {"memorySlots": 48, "driveBays": 16},
-    # ── HPE ──
-    "proliant dl380 gen10": {"memorySlots": 24, "driveBays": 12},
-    "proliant dl380 gen11": {"memorySlots": 24, "driveBays": 12},
-    "proliant dl360 gen10": {"memorySlots": 24, "driveBays": 8},
-    # ── Lenovo ──
-    "thinksystem sr650": {"memorySlots": 16, "driveBays": 8},
-    "thinksystem sr630": {"memorySlots": 12, "driveBays": 8},
-    # ── Huawei ──
-    "fusionserver 2288h v5": {"memorySlots": 12, "driveBays": 8},
-    # ── XFusion / 超聚变 ──
-    "2288h v7": {"memorySlots": 16, "driveBays": 8},
-    "2288h v6": {"memorySlots": 16, "driveBays": 8},
-    # ── Supermicro ──
-    "as-4124gs-tnr": {"memorySlots": 32, "driveBays": 8},
-}
-
-# Substring-based model matching (for when exact model name varies)
-KNOWN_MODEL_SUBSTR: list[tuple[str, dict]] = [
-    ("nf5280", {"memorySlots": 16, "driveBays": 12}),
-    ("nf5180", {"memorySlots": 12, "driveBays": 8}),
-    ("poweredge r7", {"memorySlots": 16, "driveBays": 10}),
-    ("proliant dl", {"memorySlots": 24, "driveBays": 8}),
-    ("thinksystem sr", {"memorySlots": 16, "driveBays": 8}),
-    ("2288h v", {"memorySlots": 16, "driveBays": 8}),  # XFusion / Huawei
-]
-
 # Limit concurrent HTTP requests to a single BMC so we don't overwhelm
 # its management controller (many BMCs cap at 4–8 simultaneous sessions).
 _BMC_SEMAPHORE = asyncio.Semaphore(6)
@@ -241,8 +199,6 @@ def _simulate(server: Server) -> dict:
         "memoryModules": [],
         "drives": drives,
         "recentLogs": recent_logs,
-        "memorySlotSummary": None,
-        "driveBaySummary": {"populated": len(drives), "total": max(len(drives), server.disk_count or 0)} if drives else None,
     }
 
 
@@ -325,14 +281,6 @@ async def _redfish_storage_drives(
         drives = await _redfish_chassis_drives(client, base)
         if drives:
             logger.debug("redfish storage: got %d drives via Path 3 (Chassis/Drives)", len(drives))
-            return drives
-        # Path 4: Deep-drill Storage controllers (Inspur / some H3C). Some
-        # BMCs report controllers in /Systems/X/Storage but don't surface
-        # drives via the standard Members→Drives array. We fetch each
-        # controller and try Links.Drives or /Drives sub-path directly.
-        drives = await _redfish_storage_deep(client, base, system_path)
-        if drives:
-            logger.debug("redfish storage: got %d drives via Path 4 (Storage deep)", len(drives))
     except Exception:
         pass  # Storage isn't critical — keep returning what we have
     return drives
@@ -481,13 +429,12 @@ async def _redfish_chassis_drives(
                 continue
             d = dr.json() or {}
             cap_bytes = d.get("CapacityBytes") or 0
-            # Skip placeholder entries: if the drive has no Model, no SN
-            # AND zero capacity, it's a stub. But if any one field is
-            # present, keep it — some Inspur BMCs report valid drives
-            # with zero capacity but have a model name.
+            # Skip placeholder entries where the BMC reports null for all
+            # meaningful fields (e.g. Inspur / XFusion providing
+            # Chassis/Drives member stubs with no actual drive data).
             model = d.get("Model")
             sn = d.get("SerialNumber")
-            if not model and not sn and cap_bytes == 0:
+            if cap_bytes == 0 and model is None and sn is None:
                 continue
             drives.append(
                 {
@@ -501,107 +448,6 @@ async def _redfish_chassis_drives(
                     "status": ((d.get("Status") or {}).get("Health")) or "OK",
                 }
             )
-    except Exception:
-        pass
-    return drives
-
-
-async def _redfish_storage_deep(
-    client: httpx.AsyncClient, base: str, system_path: str
-) -> list[dict]:
-    """Path 4: Deep-drill each Storage controller for drives (Inspur / H3C).
-
-    Some BMCs report controllers under /Systems/X/Storage but do not
-    populate the Drives array on the collection-level members response.
-    We fetch each controller individually and look for drives in:
-      - ``Links/Drives`` (Inspur sometimes puts drives there)
-      - ``/Drives`` sub-path on each controller
-    """
-    drives: list[dict] = []
-    try:
-        coll = await client.get(f"{base}/{system_path}/Storage")
-        if coll.status_code != 200:
-            return drives
-        members = (coll.json() or {}).get("Members") or []
-        if not members:
-            return drives
-
-        async def _deep_drill(m) -> list[dict]:
-            href = m.get("@odata.id")
-            if not href:
-                return []
-            try:
-                ctrl = await client.get(f"{base}{href}")
-            except Exception:
-                return []
-            if ctrl.status_code != 200:
-                return []
-            ctrl_data = ctrl.json() or {}
-            found: list[dict] = []
-
-            # Try Links → Drives (Inspur / H3C sometimes use this)
-            for link_ref in (ctrl_data.get("Links") or {}).get("Drives") or []:
-                drive_href = link_ref.get("@odata.id")
-                if not drive_href:
-                    continue
-                try:
-                    dr = await client.get(f"{base}{drive_href}")
-                except Exception:
-                    continue
-                if dr.status_code != 200:
-                    continue
-                d = dr.json() or {}
-                cap_bytes = d.get("CapacityBytes") or 0
-                found.append({
-                    "name": d.get("Name") or d.get("Id") or "?",
-                    "model": d.get("Model") or "—",
-                    "sn": d.get("SerialNumber") or None,
-                    "capacityGB": round(cap_bytes / (1024**3), 0) if cap_bytes else 0,
-                    "mediaType": d.get("MediaType") or "—",
-                    "status": ((d.get("Status") or {}).get("Health")) or "OK",
-                })
-                continue
-
-            # Try /Drives sub-path on the controller
-            if not found:
-                try:
-                    dr_coll = await client.get(f"{base}{href}/Drives")
-                except Exception:
-                    return found
-                if dr_coll.status_code == 200:
-                    for dm in (dr_coll.json() or {}).get("Members") or []:
-                        dh = dm.get("@odata.id")
-                        if not dh:
-                            continue
-                        try:
-                            dr = await client.get(f"{base}{dh}")
-                        except Exception:
-                            continue
-                        if dr.status_code != 200:
-                            continue
-                        d = dr.json() or {}
-                        cap_bytes = d.get("CapacityBytes") or 0
-                        model = d.get("Model")
-                        sn = d.get("SerialNumber")
-                        if not model and not sn and cap_bytes == 0:
-                            continue
-                        found.append({
-                            "name": d.get("Name") or d.get("Id") or "?",
-                            "model": model or "—",
-                            "sn": sn or None,
-                            "capacityGB": round(cap_bytes / (1024**3), 0) if cap_bytes else 0,
-                            "mediaType": d.get("MediaType") or "—",
-                            "status": ((d.get("Status") or {}).get("Health")) or "OK",
-                        })
-            return found
-
-        results = await asyncio.gather(
-            *[_deep_drill(m) for m in members],
-            return_exceptions=True,
-        )
-        for r in results:
-            if isinstance(r, list):
-                drives.extend(r)
     except Exception:
         pass
     return drives
@@ -625,48 +471,6 @@ async def _redfish_memory_dims(
         return dims
 
     if not members:
-        # Fallback: some Inspur BMCs expose memory under
-        # /MemoryDomains/{domain}/Memory instead of /Memory directly.
-        try:
-            dm_coll = await client.get(f"{base}/{system_path}/MemoryDomains")
-            if dm_coll.status_code == 200:
-                for dm_member in (dm_coll.json() or {}).get("Members") or []:
-                    dm_href = dm_member.get("@odata.id")
-                    if not dm_href:
-                        continue
-                    dm_res = await client.get(f"{base}{dm_href}/Memory")
-                    if dm_res.status_code == 200:
-                        members = (dm_res.json() or {}).get("Members") or []
-                        if members:
-                            break
-        except Exception:
-            pass
-    # Read total slot count — try several strategies:
-    # 1) Redfish standard @odata.count (works on most BMCs)
-    # 2) Infer from DIMM slot name pattern (CPU{n}_C{ch}D{dimm})
-    # 3) Fall back to collected count
-    coll_data = coll.json() or {}
-    odata_count = coll_data.get("Members@odata.count")
-    if odata_count and isinstance(odata_count, (int, float)) and int(odata_count) > len(members):
-        total_slots = int(odata_count)
-    else:
-        # Infer total slots from DIMM naming pattern: CPU{n}_C{ch}D{dimm}
-        # Parse existing slots to find max CPU, channel, and DIMM indices.
-        max_cpu = 0
-        max_ch = 0
-        max_dimm = 0
-        for m_ref in members:
-            href = m_ref.get("@odata.id") or ""
-            name = href.rsplit("/", 1)[-1]  # e.g. "CPU0_C0D0"
-            m = re.match(r"CPU(\d+)_C(\d+)D(\d+)", name)
-            if m:
-                max_cpu = max(max_cpu, int(m.group(1)))
-                max_ch = max(max_ch, int(m.group(2)))
-                max_dimm = max(max_dimm, int(m.group(3)))
-        inferred = (max_cpu + 1) * (max_ch + 1) * (max_dimm + 1)
-        total_slots = max(inferred, len(members))
-
-    if not members:
         return dims
 
     async def _get_dim(m) -> dict | None:
@@ -683,8 +487,6 @@ async def _redfish_memory_dims(
         d = r.json() or {}
         loc = d.get("DeviceLocator") or d.get("Name") or d.get("Id") or "?"
         capacity_mib = d.get("CapacityMiB") or 0
-        state = (d.get("Status") or {}).get("State", "")
-        populated = state.upper() != "ABSENT" and capacity_mib > 0
         return {
             "slot": loc,
             "model": d.get("Model") or d.get("Manufacturer") or "—",
@@ -692,7 +494,6 @@ async def _redfish_memory_dims(
             "capacityMiB": capacity_mib,
             "memoryType": d.get("MemoryDeviceType") or "—",
             "status": ((d.get("Status") or {}).get("Health")) or "OK",
-            "populated": populated,
         }
 
     results = await asyncio.gather(
@@ -702,27 +503,6 @@ async def _redfish_memory_dims(
     for result in results:
         if isinstance(result, dict):
             dims.append(result)
-
-    # Pad with synthetic empty entries if total slot count > collected
-    if total_slots > len(dims):
-        existing_slots = {d.get("slot", "") for d in dims}
-        for i in range(total_slots - len(dims)):
-            slot_name = f"DIMM_{i}"
-            base = slot_name
-            dedup = 0
-            while slot_name in existing_slots:
-                dedup += 1
-                slot_name = f"{base}_{dedup}"
-            existing_slots.add(slot_name)
-            dims.append({
-                "slot": slot_name,
-                "model": "—",
-                "sn": None,
-                "capacityMiB": 0,
-                "memoryType": "—",
-                "status": "OK",
-                "populated": False,
-            })
 
     return dims
 
@@ -809,13 +589,10 @@ async def _redfish_session_auth(
 async def _redfish_delete_session(
     client: httpx.AsyncClient, base: str, session_uri: str
 ) -> None:
-    """DELETE a Redfish session to avoid hitting BMC session limits.
-    Exceptions are logged but never propagated — session leaks are
-    tolerable, poll failures are not."""
+    """DELETE a Redfish session to avoid hitting BMC session limits."""
     try:
         await client.delete(f"{base}{session_uri}")
-    except Exception as exc:
-        logger.debug("session DELETE failed for %s: %s", base, exc)
+    except Exception:
         pass
 
 
@@ -848,15 +625,12 @@ async def _collect_redfish(server: Server) -> dict | None:
                     _redfish_first_member(client, base, "Systems"),
                 )
                 if not chassis_path or not system_path:
-                    # Fallback: some BMCs (older XFusion, some Inspur) expose
-                    # Chassis/Systems at the root member index 1 but don't
-                    # list it in the collection Members array.
-                    if not chassis_path:
-                        chassis_path = "redfish/v1/Chassis/1"
-                        logger.info("chassis fallback → %s for %s", chassis_path, server.id)
-                    if not system_path:
-                        system_path = "redfish/v1/Systems/1"
-                        logger.info("system fallback → %s for %s", system_path, server.id)
+                    logger.warning(
+                        "redfish discovery failed for %s (manufacturer=%s)",
+                        server.id,
+                        server.manufacturer,
+                    )
+                    return None
 
                 thermal_res, power_res, system_res, drives, mem_modules, logs = (
                     await asyncio.gather(
@@ -945,117 +719,6 @@ async def _collect_redfish(server: Server) -> dict | None:
                     else None
                 )
 
-                # ── Slot summaries ────────────────────────────────────
-                # Memory: count populated vs total from collected modules
-                mem_populated = sum(1 for m in (mem_modules or []) if m.get("populated"))
-                mem_total = len(mem_modules or [])
-                # Try to get total from system MemorySummary (some BMCs —
-                # notably Inspur / older Dell — only return populated DIMMs
-                # in /Memory, so we need TotalMemorySockets for the total)
-                mem_socks = mem_sum.get("TotalMemorySockets")
-                if not mem_socks:
-                    mem_socks = proc_sum.get("TotalMemorySockets")
-                if mem_socks:
-                    mem_total = max(mem_total, int(mem_socks))
-                # Pad with synthetic empty entries so the frontend shows
-                # all slots (populated + empty) with correct counts.
-                if mem_total > len(mem_modules or []):
-                    existing_slots = {m.get("slot", "") for m in (mem_modules or [])}
-                    for i in range(mem_total - len(mem_modules or [])):
-                        slot_name = f"DIMM_A{chr(65 + i) if i < 26 else i}"  # A, B, C…
-                        # Avoid duplicate slot names
-                        base = slot_name
-                        dedup = 0
-                        while slot_name in existing_slots:
-                            dedup += 1
-                            slot_name = f"{base}_{dedup}"
-                        existing_slots.add(slot_name)
-                        mem_modules.append({
-                            "slot": slot_name,
-                            "model": "—",
-                            "sn": None,
-                            "capacityMiB": 0,
-                            "memoryType": "—",
-                            "status": "OK",
-                            "populated": False,
-                        })
-
-                # Drives: populate vs total (same fallback strategy as memory)
-                drv_populated = sum(1 for d in (drives or []) if d.get("capacityGB", 0) > 0 or d.get("model", "—") != "—")
-                drv_total = len(drives or [])
-                # Infer total from drive naming pattern: Disk.Bay.{n}...
-                # If bays are sparse (e.g. Bay.0, Bay.2 but no Bay.1),
-                # total = max_bay_number + 1
-                try:
-                    max_bay = -1
-                    for d in (drives or []):
-                        name = d.get("name", "")
-                        # Try Disk.Bay.{n} pattern (Dell)
-                        m = re.search(r"Bay\.(\d+)", name)
-                        if not m:
-                            # Try Disk{n} or trailing number (XFusion / Inspur)
-                            m = re.search(r"(?:Disk|Bay|Slot)[\s\.]?(\d+)", name)
-                        if m:
-                            max_bay = max(max_bay, int(m.group(1)))
-                    if max_bay >= drv_total:
-                        drv_total = max_bay + 1
-                except Exception:
-                    pass
-                try:
-                    chassis_res = await client.get(f"{base}/{chassis_path}")
-                    if chassis_res.status_code == 200:
-                        cd = chassis_res.json() or {}
-                        # Try DriveBayCount first
-                        dbc = cd.get("DriveBayCount")
-                        if isinstance(dbc, (int, float)) and dbc > drv_total:
-                            drv_total = int(dbc)
-                        # Fallback: try @odata.count from chassis Drives collection
-                        if drv_total == len(drives or []):
-                            try:
-                                dc = await client.get(f"{base}/{chassis_path}/Drives")
-                                if dc.status_code == 200:
-                                    dc_data = dc.json() or {}
-                                    doc = dc_data.get("Members@odata.count")
-                                    if doc and isinstance(doc, (int, float)) and int(doc) > drv_total:
-                                        drv_total = int(doc)
-                            except Exception:
-                                pass
-                except Exception:
-                    pass
-
-                # Final fallback: known model lookup table
-                model_key = (server.model or "").lower().strip()
-                known = KNOWN_MODEL_SLOTS.get(model_key)
-                if not known:
-                    for substr, info in KNOWN_MODEL_SUBSTR:
-                        if substr in model_key:
-                            known = info
-                            break
-                if known:
-                    if known.get("memorySlots") and mem_total < known["memorySlots"]:
-                        mem_total = known["memorySlots"]
-                        # Pad with synthetic empty entries
-                        existing_slots = {m.get("slot", "") for m in (mem_modules or [])}
-                        for i in range(mem_total - len(mem_modules or [])):
-                            slot_name = f"DIMM_A{chr(65 + i) if i < 26 else i}"
-                            base = slot_name
-                            dedup = 0
-                            while slot_name in existing_slots:
-                                dedup += 1
-                                slot_name = f"{base}_{dedup}"
-                            existing_slots.add(slot_name)
-                            mem_modules.append({
-                                "slot": slot_name,
-                                "model": "—",
-                                "sn": None,
-                                "capacityMiB": 0,
-                                "memoryType": "—",
-                                "status": "OK",
-                                "populated": False,
-                            })
-                    if known.get("driveBays") and drv_total < known["driveBays"]:
-                        drv_total = known["driveBays"]
-
                 return {
                     "power": (
                         "On" if (system.get("PowerState") == "On") else "Off"
@@ -1076,8 +739,6 @@ async def _collect_redfish(server: Server) -> dict | None:
                     "memoryModules": mem_modules or None,
                     "drives": drives or None,
                     "recentLogs": logs or None,
-                    "memorySlotSummary": {"populated": mem_populated, "total": mem_total} if mem_total > 0 else None,
-                    "driveBaySummary": {"populated": drv_populated, "total": drv_total} if drv_total > 0 else None,
                 }
             finally:
                 # Always clean up the session so we don't hit BMC session
@@ -1377,31 +1038,8 @@ def get_latest_snapshot(server_id: str) -> BmcSnapshot | None:
         db.close()
 
 
-def snapshot_to_status(snap: BmcSnapshot, model: str = "") -> dict:
+def snapshot_to_status(snap: BmcSnapshot) -> dict:
     """Convert a persisted snapshot back to the frontend BmcStatus shape."""
-    mem_modules = snap.memory_modules or []
-    drives = snap.drives or []
-    # Compute slot/bay summaries from the stored JSON data.
-    # For old snapshots that don't have padded empty entries, try model lookup.
-    mem_populated = sum(1 for m in mem_modules if m.get("populated", True))
-    mem_total = len(mem_modules)
-    drv_populated = sum(1 for d in drives if d.get("capacityGB", 0) > 0 or d.get("model", "—") != "—")
-    drv_total = len(drives)
-    if model:
-        mkey = model.lower().strip()
-        known = KNOWN_MODEL_SLOTS.get(mkey)
-        if not known:
-            for substr, info in KNOWN_MODEL_SUBSTR:
-                if substr in mkey:
-                    known = info
-                    break
-        if known:
-            if known.get("memorySlots") and mem_total < known["memorySlots"]:
-                mem_total = known["memorySlots"]
-            if known.get("driveBays") and drv_total < known["driveBays"]:
-                drv_total = known["driveBays"]
-    mem_slot_summary = {"populated": mem_populated, "total": mem_total} if mem_modules or mem_total > 0 else None
-    drv_bay_summary = {"populated": drv_populated, "total": drv_total} if drives or drv_total > 0 else None
     return {
         "serverId": snap.server_id,
         "source": snap.source,
@@ -1412,8 +1050,8 @@ def snapshot_to_status(snap: BmcSnapshot, model: str = "") -> dict:
         "inletTempC": snap.inlet_temp_c or 0,
         "processorSummary": snap.processor_summary,
         "memorySummary": snap.memory_summary,
-        "memoryModules": mem_modules,
-        "drives": drives,
+        "memoryModules": snap.memory_modules or [],
+        "drives": snap.drives or [],
         "fans": snap.fans or [],
         "psus": snap.psus or [],
         "recentLogs": snap.recent_logs or [],
@@ -1421,6 +1059,4 @@ def snapshot_to_status(snap: BmcSnapshot, model: str = "") -> dict:
         "alerts": snap.alerts or [],
         "updatedAt": snap.collected_at.isoformat() if snap.collected_at else "",
         "bootProgress": "OSBootCompleted",
-        "memorySlotSummary": mem_slot_summary,
-        "driveBaySummary": drv_bay_summary,
     }
