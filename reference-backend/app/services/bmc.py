@@ -78,6 +78,9 @@ KNOWN_MODEL_SLOTS: dict[str, dict] = {
     "thinksystem sr630": {"memorySlots": 12, "driveBays": 8},
     # ── Huawei ──
     "fusionserver 2288h v5": {"memorySlots": 12, "driveBays": 8},
+    # ── XFusion / 超聚变 ──
+    "2288h v7": {"memorySlots": 16, "driveBays": 8},
+    "2288h v6": {"memorySlots": 16, "driveBays": 8},
     # ── Supermicro ──
     "as-4124gs-tnr": {"memorySlots": 32, "driveBays": 8},
 }
@@ -89,6 +92,7 @@ KNOWN_MODEL_SUBSTR: list[tuple[str, dict]] = [
     ("poweredge r7", {"memorySlots": 16, "driveBays": 10}),
     ("proliant dl", {"memorySlots": 24, "driveBays": 8}),
     ("thinksystem sr", {"memorySlots": 16, "driveBays": 8}),
+    ("2288h v", {"memorySlots": 16, "driveBays": 8}),  # XFusion / Huawei
 ]
 
 # Limit concurrent HTTP requests to a single BMC so we don't overwhelm
@@ -985,7 +989,12 @@ async def _collect_redfish(server: Server) -> dict | None:
                 try:
                     max_bay = -1
                     for d in (drives or []):
-                        m = re.search(r"Bay\.(\d+)", d.get("name", ""))
+                        name = d.get("name", "")
+                        # Try Disk.Bay.{n} pattern (Dell)
+                        m = re.search(r"Bay\.(\d+)", name)
+                        if not m:
+                            # Try Disk{n} or trailing number (XFusion / Inspur)
+                            m = re.search(r"(?:Disk|Bay|Slot)[\s\.]?(\d+)", name)
                         if m:
                             max_bay = max(max_bay, int(m.group(1)))
                     if max_bay >= drv_total:
