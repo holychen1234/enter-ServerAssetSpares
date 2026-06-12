@@ -34,7 +34,7 @@ const schema = z.object({
   memoryGB: z.coerce.number().int().min(1),
   diskType: z.string().min(1, "必填"),
   diskCapacityGB: z.coerce.number().int().min(0),
-  macAddress: z.string().optional(),
+  macAddress: z.string().regex(/^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/, "MAC 地址格式无效，请使用 AA:BB:CC:DD:EE:FF").optional().or(z.literal("")),
   os: z.enum(["Windows 10", "Windows 11", "macOS", "Ubuntu", "CentOS", "Other"]),
   osVersion: z.string().optional(),
   bizIp: z.string().optional(),
@@ -141,7 +141,7 @@ export function TerminalAssetForm({ open, initial, onClose, onSubmit }: Props) {
   });
 
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()} key={initial?.id ?? "new"}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{initial ? "编辑终端资产" : "新增终端资产"}</DialogTitle>

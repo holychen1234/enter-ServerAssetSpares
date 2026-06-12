@@ -1,6 +1,7 @@
 import uuid
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError, DataError, ProgrammingError
 from sqlalchemy.orm import Session
 
@@ -42,9 +43,18 @@ def _apply_payload(ta: TerminalAsset, body: dict):
 
 @router.get("/terminal-assets")
 def list_terminal_assets(
-    db: Session = Depends(get_db), _: Profile = Depends(get_current_user)
+    limit: int = Query(default=200, ge=1, le=1000, description="返回条数上限"),
+    offset: int = Query(default=0, ge=0, description="偏移量（用于分页）"),
+    db: Session = Depends(get_db),
+    _: Profile = Depends(get_current_user),
 ):
-    rows = db.query(TerminalAsset).order_by(TerminalAsset.created_at.desc()).all()
+    rows = (
+        db.query(TerminalAsset)
+        .order_by(TerminalAsset.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
     return [terminal_asset_to_dict(r) for r in rows]
 
 

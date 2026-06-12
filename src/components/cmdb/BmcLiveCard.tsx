@@ -26,16 +26,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-
-/** Parse ISO string, treating naive (no-timezone) strings as UTC.
- *  Backend may omit timezone suffix on DB-persisted timestamps.
- *  Without this, `new Date("...")` interprets naive strings as
- *  local time (browser timezone), breaking the UTC→Asia/Shanghai conversion. */
-function toDate(s: string): Date {
-  return /[+-]\d{2}:\d{2}$/.test(s) || s.endsWith("Z")
-    ? new Date(s)
-    : new Date(s + "Z");
-}
+import { toDate } from "@/lib/time";
 
 interface Props {
   status: BmcStatus;
