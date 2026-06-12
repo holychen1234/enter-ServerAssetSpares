@@ -201,7 +201,7 @@ async def server_bmc(
     if refresh:
         snap = await bmc_svc.collect_and_save(s)
         if snap:
-            return {**bmc_svc.snapshot_to_status(snap, model=s.model), "lastCollectedAt": snap.collected_at.isoformat()}
+            return {**bmc_svc.snapshot_to_status(snap), "lastCollectedAt": snap.collected_at.isoformat()}
         # BMC unreachable — fall back to latest persisted snapshot.
         snap = bmc_svc.get_latest_snapshot(sid)
 
@@ -210,12 +210,12 @@ async def server_bmc(
         snap = bmc_svc.get_latest_snapshot(sid)
 
     if snap:
-        return {**bmc_svc.snapshot_to_status(snap, model=s.model), "lastCollectedAt": snap.collected_at.isoformat()}
+        return {**bmc_svc.snapshot_to_status(snap), "lastCollectedAt": snap.collected_at.isoformat()}
 
     # No snapshot exists yet — poll live and persist so subsequent requests are instant.
     snap = await bmc_svc.collect_and_save(s)
     if snap:
-        return {**bmc_svc.snapshot_to_status(snap, model=s.model), "lastCollectedAt": snap.collected_at.isoformat()}
+        return {**bmc_svc.snapshot_to_status(snap), "lastCollectedAt": snap.collected_at.isoformat()}
 
     # Last resort: live one-off without persistence (BMC totally unreachable).
     status = await bmc_svc.get_status(s, force_refresh=True)
@@ -245,7 +245,7 @@ async def server_bmc_refresh(
         )
     )
     db.commit()
-    return {**bmc_svc.snapshot_to_status(snap, model=s.model if s else ""), "lastCollectedAt": snap.collected_at.isoformat()}
+    return {**bmc_svc.snapshot_to_status(snap), "lastCollectedAt": snap.collected_at.isoformat()}
 
 
 @router.get("/servers/{sid}/installed-items")

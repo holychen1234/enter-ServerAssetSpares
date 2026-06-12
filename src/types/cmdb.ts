@@ -101,7 +101,6 @@ export interface BmcStatus {
     capacityMiB: number;
     memoryType: string;
     status: string;
-    populated?: boolean;
   }[];
   /** Storage drives discovered via Redfish. */
   drives?: {
@@ -112,10 +111,6 @@ export interface BmcStatus {
     mediaType: string;
     status: string;
   }[];
-  /** Summary of memory slot population. */
-  memorySlotSummary?: { populated: number; total: number };
-  /** Summary of drive bay population. */
-  driveBaySummary?: { populated: number; total: number };
   /** Recent BMC log entries (Redfish LogServices). */
   recentLogs?: {
     id: string;

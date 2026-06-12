@@ -294,12 +294,12 @@ async def get_server_disks(
 
     snap = bmc_svc.get_latest_snapshot(s.id)
     if snap:
-        status = bmc_svc.snapshot_to_status(snap, model=s.model)
+        status = bmc_svc.snapshot_to_status(snap)
     else:
         # No snapshot yet — fetch live now and persist so future queries are instant.
         snap = await bmc_svc.collect_and_save(s)
         if snap:
-            status = bmc_svc.snapshot_to_status(snap, model=s.model)
+            status = bmc_svc.snapshot_to_status(snap)
         else:
             status = {"drives": [], "source": "unreachable"}
     drives = status.get("drives") or []
@@ -343,7 +343,7 @@ async def get_server_bmc_status(
     if not snap:
         snap = await bmc_svc.collect_and_save(s)
     if snap:
-        status = bmc_svc.snapshot_to_status(snap, model=s.model)
+        status = bmc_svc.snapshot_to_status(snap)
     else:
         status = {"source": "unreachable", "drives": [], "memoryModules": [],
                   "fans": [], "psus": [], "recentLogs": [], "alerts": [],
