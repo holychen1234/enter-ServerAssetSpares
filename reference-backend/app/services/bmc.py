@@ -1204,6 +1204,13 @@ def get_latest_snapshot(server_id: str) -> BmcSnapshot | None:
 
 def snapshot_to_status(snap: BmcSnapshot) -> dict:
     """Convert a persisted snapshot back to the frontend BmcStatus shape."""
+    mem_modules = snap.memory_modules or []
+    drives = snap.drives or []
+    # Compute slot/bay summaries from the stored JSON data
+    mem_populated = sum(1 for m in mem_modules if m.get("populated", True))
+    mem_slot_summary = {"populated": mem_populated, "total": len(mem_modules)} if mem_modules else None
+    drv_populated = sum(1 for d in drives if d.get("capacityGB", 0) > 0 or d.get("model", "—") != "—")
+    drv_bay_summary = {"populated": drv_populated, "total": len(drives)} if drives else None
     return {
         "serverId": snap.server_id,
         "source": snap.source,
@@ -1214,8 +1221,8 @@ def snapshot_to_status(snap: BmcSnapshot) -> dict:
         "inletTempC": snap.inlet_temp_c or 0,
         "processorSummary": snap.processor_summary,
         "memorySummary": snap.memory_summary,
-        "memoryModules": snap.memory_modules or [],
-        "drives": snap.drives or [],
+        "memoryModules": mem_modules,
+        "drives": drives,
         "fans": snap.fans or [],
         "psus": snap.psus or [],
         "recentLogs": snap.recent_logs or [],
@@ -1223,6 +1230,6 @@ def snapshot_to_status(snap: BmcSnapshot) -> dict:
         "alerts": snap.alerts or [],
         "updatedAt": snap.collected_at.isoformat() if snap.collected_at else "",
         "bootProgress": "OSBootCompleted",
-        "memorySlotSummary": None,
-        "driveBaySummary": None,
+        "memorySlotSummary": mem_slot_summary,
+        "driveBaySummary": drv_bay_summary,
     }
