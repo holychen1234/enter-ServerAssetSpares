@@ -861,17 +861,42 @@ async def _collect_redfish(server: Server) -> dict | None:
                 # Memory: count populated vs total from collected modules
                 mem_populated = sum(1 for m in (mem_modules or []) if m.get("populated"))
                 mem_total = len(mem_modules or [])
-                # Try to get total from system MemorySummary
-                if mem_total == 0:
-                    mem_socks = mem_sum.get("TotalMemorySockets")
-                    if not mem_socks:
-                        mem_socks = proc_sum.get("TotalMemorySockets") or 0
-                    mem_total = max(mem_total, int(mem_socks) if mem_socks else 0)
+                # Try to get total from system MemorySummary (some BMCs —
+                # notably Inspur / older Dell — only return populated DIMMs
+                # in /Memory, so we need TotalMemorySockets for the total)
+                mem_socks = mem_sum.get("TotalMemorySockets")
+                if not mem_socks:
+                    mem_socks = proc_sum.get("TotalMemorySockets")
+                if mem_socks:
+                    mem_total = max(mem_total, int(mem_socks))
+                # Pad with synthetic empty entries so the frontend shows
+                # all slots (populated + empty) with correct counts.
+                if mem_total > len(mem_modules or []):
+                    existing_slots = {m.get("slot", "") for m in (mem_modules or [])}
+                    for i in range(mem_total - len(mem_modules or [])):
+                        slot_name = f"DIMM_A{chr(65 + i) if i < 26 else i}"  # A, B, C…
+                        # Avoid duplicate slot names
+                        base = slot_name
+                        dedup = 0
+                        while slot_name in existing_slots:
+                            dedup += 1
+                            slot_name = f"{base}_{dedup}"
+                        existing_slots.add(slot_name)
+                        mem_modules.append({
+                            "slot": slot_name,
+                            "model": "—",
+                            "sn": None,
+                            "capacityMiB": 0,
+                            "memoryType": "—",
+                            "status": "OK",
+                            "populated": False,
+                        })
 
                 # Drives: populate vs total
                 drv_populated = sum(1 for d in (drives or []) if d.get("capacityGB", 0) > 0 or d.get("model", "—") != "—")
                 drv_total = len(drives or [])
-                # Try to get DriveBayCount from chassis
+                # Try to get DriveBayCount from chassis (covers Inspur /
+                # XFusion where empty drive bays aren't in the collection)
                 try:
                     chassis_res = await client.get(f"{base}/{chassis_path}")
                     if chassis_res.status_code == 200:
