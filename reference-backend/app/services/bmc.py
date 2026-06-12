@@ -599,6 +599,17 @@ async def _redfish_memory_dims(
                             break
         except Exception:
             pass
+    # Read total slot count from the Redfish collection standard field
+    # @odata.count. Many BMCs (Dell iDRAC, some Inspur) only return
+    # populated DIMMs in the Members array but report the full slot
+    # count in @odata.count.
+    coll_data = coll.json() or {}
+    odata_count = coll_data.get("Members@odata.count")
+    if odata_count and isinstance(odata_count, (int, float)) and int(odata_count) > len(members):
+        total_slots = int(odata_count)
+    else:
+        total_slots = len(members)
+
     if not members:
         return dims
 
@@ -635,6 +646,27 @@ async def _redfish_memory_dims(
     for result in results:
         if isinstance(result, dict):
             dims.append(result)
+
+    # Pad with synthetic empty entries if total slot count > collected
+    if total_slots > len(dims):
+        existing_slots = {d.get("slot", "") for d in dims}
+        for i in range(total_slots - len(dims)):
+            slot_name = f"DIMM_{i}"
+            base = slot_name
+            dedup = 0
+            while slot_name in existing_slots:
+                dedup += 1
+                slot_name = f"{base}_{dedup}"
+            existing_slots.add(slot_name)
+            dims.append({
+                "slot": slot_name,
+                "model": "—",
+                "sn": None,
+                "capacityMiB": 0,
+                "memoryType": "—",
+                "status": "OK",
+                "populated": False,
+            })
 
     return dims
 
