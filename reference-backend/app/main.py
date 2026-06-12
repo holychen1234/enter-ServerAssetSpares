@@ -1,8 +1,10 @@
 from contextlib import asynccontextmanager
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy.exc import IntegrityError, DataError, ProgrammingError
 
 from app.api import ai_query, auth_users, network_devices, parts, servers, workstations
 from app.db.base import SessionLocal
@@ -64,6 +66,22 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="CMDB Reference API", version="0.1.0", lifespan=lifespan)
+
+
+# ── Unified exception handlers ──────────────────────────────
+
+@app.exception_handler(IntegrityError)
+@app.exception_handler(DataError)
+@app.exception_handler(ProgrammingError)
+async def sqlalchemy_exc_handler(_request: Request, exc: Exception) -> JSONResponse:
+    detail = str(exc.orig) if getattr(exc, "orig", None) else str(exc)
+    return JSONResponse(status_code=422, content={"detail": f"数据库错误: {detail}"})
+
+
+@app.exception_handler(Exception)
+async def generic_exc_handler(_request: Request, exc: Exception) -> JSONResponse:
+    return JSONResponse(status_code=500, content={"detail": f"服务器内部错误: {str(exc)}"})
+
 
 app.add_middleware(
     CORSMiddleware,

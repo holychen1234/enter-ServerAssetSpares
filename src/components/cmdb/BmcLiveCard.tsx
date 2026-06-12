@@ -26,16 +26,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-
-/** Parse ISO string, treating naive (no-timezone) strings as UTC.
- *  Backend may omit timezone suffix on DB-persisted timestamps.
- *  Without this, `new Date("...")` interprets naive strings as
- *  local time (browser timezone), breaking the UTC→Asia/Shanghai conversion. */
-function toDate(s: string): Date {
-  return /[+-]\d{2}:\d{2}$/.test(s) || s.endsWith("Z")
-    ? new Date(s)
-    : new Date(s + "Z");
-}
+import { toDate } from "@/lib/time";
 
 interface Props {
   status: BmcStatus;
@@ -175,6 +166,11 @@ export function BmcLiveCard({ status, loading, itemSnMap }: Props) {
                   </span>
                 )}
               </div>
+              {status.memorySlotSummary && (
+                <div className="mt-1 text-xs text-muted-foreground">
+                  插槽占用：{status.memorySlotSummary.populated}/{status.memorySlotSummary.total}
+                </div>
+              )}
             </div>
           ) : (
             <div className="rounded-lg border border-border bg-muted/40 px-3 py-3 text-sm text-muted-foreground">
@@ -235,7 +231,9 @@ export function BmcLiveCard({ status, loading, itemSnMap }: Props) {
             <CardTitle className="flex items-center gap-2 text-base">
               <HardDrive className="h-4 w-4 text-primary" /> 硬盘
               <span className="text-xs font-normal text-muted-foreground">
-                共 {status.drives.length} 块
+                {status.driveBaySummary
+                  ? `${status.driveBaySummary.populated}/${status.driveBaySummary.total} 槽已占用`
+                  : `共 ${status.drives.length} 块`}
               </span>
             </CardTitle>
           </CardHeader>
@@ -299,7 +297,9 @@ export function BmcLiveCard({ status, loading, itemSnMap }: Props) {
             <CardTitle className="flex items-center gap-2 text-base">
               <MemoryIcon className="h-4 w-4 text-primary" /> 内存 DIMM
               <span className="text-xs font-normal text-muted-foreground">
-                共 {status.memoryModules.length} 根
+                {status.memorySlotSummary
+                  ? `${status.memorySlotSummary.populated}/${status.memorySlotSummary.total} 槽已占用`
+                  : `共 ${status.memoryModules.length} 根`}
                 {status.memorySummary && (
                   <span className="ml-1">
                     · 合计 {status.memorySummary.totalGiB} GiB
@@ -310,18 +310,20 @@ export function BmcLiveCard({ status, loading, itemSnMap }: Props) {
           </CardHeader>
           <CardContent className="p-0">
             <div className="divide-y divide-border">
-              {status.memoryModules.map((dim) => (
+              {status.memoryModules.map((dim) => {
+                const isEmpty = dim.populated === false;
+                return (
                 <div
                   key={dim.slot}
-                  className="flex items-center gap-4 px-6 py-3"
+                  className={`flex items-center gap-4 px-6 py-3 ${isEmpty ? "opacity-40" : ""}`}
                 >
                   <span
                     className={
                       "inline-block rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wider " +
-                      healthColor(dim.status)
+                      (isEmpty ? "border-border text-muted-foreground" : healthColor(dim.status))
                     }
                   >
-                    {dim.status}
+                    {isEmpty ? "空" : dim.status}
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline gap-2">
@@ -346,7 +348,8 @@ export function BmcLiveCard({ status, loading, itemSnMap }: Props) {
                     {formatMemorySize(dim.capacityMiB)}
                   </div>
                 </div>
-              ))}
+              );
+              })}
             </div>
           </CardContent>
         </Card>
