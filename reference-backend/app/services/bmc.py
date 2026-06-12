@@ -599,16 +599,30 @@ async def _redfish_memory_dims(
                             break
         except Exception:
             pass
-    # Read total slot count from the Redfish collection standard field
-    # @odata.count. Many BMCs (Dell iDRAC, some Inspur) only return
-    # populated DIMMs in the Members array but report the full slot
-    # count in @odata.count.
+    # Read total slot count — try several strategies:
+    # 1) Redfish standard @odata.count (works on most BMCs)
+    # 2) Infer from DIMM slot name pattern (CPU{n}_C{ch}D{dimm})
+    # 3) Fall back to collected count
     coll_data = coll.json() or {}
     odata_count = coll_data.get("Members@odata.count")
     if odata_count and isinstance(odata_count, (int, float)) and int(odata_count) > len(members):
         total_slots = int(odata_count)
     else:
-        total_slots = len(members)
+        # Infer total slots from DIMM naming pattern: CPU{n}_C{ch}D{dimm}
+        # Parse existing slots to find max CPU, channel, and DIMM indices.
+        max_cpu = 0
+        max_ch = 0
+        max_dimm = 0
+        for m_ref in members:
+            href = m_ref.get("@odata.id") or ""
+            name = href.rsplit("/", 1)[-1]  # e.g. "CPU0_C0D0"
+            m = re.match(r"CPU(\d+)_C(\d+)D(\d+)", name)
+            if m:
+                max_cpu = max(max_cpu, int(m.group(1)))
+                max_ch = max(max_ch, int(m.group(2)))
+                max_dimm = max(max_dimm, int(m.group(3)))
+        inferred = (max_cpu + 1) * (max_ch + 1) * (max_dimm + 1)
+        total_slots = max(inferred, len(members))
 
     if not members:
         return dims
