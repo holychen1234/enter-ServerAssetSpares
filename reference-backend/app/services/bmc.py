@@ -938,17 +938,28 @@ async def _collect_redfish(server: Server) -> dict | None:
                             "populated": False,
                         })
 
-                # Drives: populate vs total
+                # Drives: populate vs total (same fallback strategy as memory)
                 drv_populated = sum(1 for d in (drives or []) if d.get("capacityGB", 0) > 0 or d.get("model", "—") != "—")
                 drv_total = len(drives or [])
-                # Try to get DriveBayCount from chassis (covers Inspur /
-                # XFusion where empty drive bays aren't in the collection)
                 try:
                     chassis_res = await client.get(f"{base}/{chassis_path}")
                     if chassis_res.status_code == 200:
-                        dbc = (chassis_res.json() or {}).get("DriveBayCount")
+                        cd = chassis_res.json() or {}
+                        # Try DriveBayCount first
+                        dbc = cd.get("DriveBayCount")
                         if isinstance(dbc, (int, float)) and dbc > drv_total:
                             drv_total = int(dbc)
+                        # Fallback: try @odata.count from chassis Drives collection
+                        if drv_total == len(drives or []):
+                            try:
+                                dc = await client.get(f"{base}/{chassis_path}/Drives")
+                                if dc.status_code == 200:
+                                    dc_data = dc.json() or {}
+                                    doc = dc_data.get("Members@odata.count")
+                                    if doc and isinstance(doc, (int, float)) and int(doc) > drv_total:
+                                        drv_total = int(doc)
+                            except Exception:
+                                pass
                 except Exception:
                     pass
 
