@@ -24,6 +24,7 @@ def _apply_payload(s: Server, body: dict):
         "cpuCount": "cpu_count",
         "memoryGB": "memory_gb",
         "diskCount": "disk_count",
+        "diskSlotCount": "disk_slot_count",
         "mgmtIp": "mgmt_ip",
         "bizIp": "biz_ip",
         "bmcProtocol": "bmc_protocol",

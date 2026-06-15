@@ -25,6 +25,7 @@ def server_to_dict(s: Server) -> dict:
         "cpuCount": s.cpu_count,
         "memoryGB": s.memory_gb,
         "diskCount": s.disk_count,
+        "diskSlotCount": s.disk_slot_count,
         "location": {
             "idc": s.idc,
             "rack": s.rack,

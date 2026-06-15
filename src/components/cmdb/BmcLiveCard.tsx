@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/cmdb/StatusBadge";
+import { SlotUsageBar } from "@/components/cmdb/SlotUsageBar";
 import {
   Activity,
   AlertTriangle,
@@ -240,6 +241,15 @@ export function BmcLiveCard({ status, loading, itemSnMap }: Props) {
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
+            {status.diskSlots && (
+              <div className="px-6 pb-3 pt-4">
+                <SlotUsageBar
+                  slotInfo={status.diskSlots}
+                  label="硬盘位"
+                  icon={<HardDrive className="h-3 w-3" />}
+                />
+              </div>
+            )}
             <div className="divide-y divide-border">
               {status.drives.map((d) => (
                 <div
@@ -309,6 +319,15 @@ export function BmcLiveCard({ status, loading, itemSnMap }: Props) {
             </CardTitle>
           </CardHeader>
           <CardContent className="p-0">
+            {status.memorySlots && (
+              <div className="px-6 pb-3 pt-4">
+                <SlotUsageBar
+                  slotInfo={status.memorySlots}
+                  label="DIMM 插槽"
+                  icon={<MemoryIcon className="h-3 w-3" />}
+                />
+              </div>
+            )}
             <div className="divide-y divide-border">
               {status.memoryModules.map((dim) => (
                 <div

@@ -182,6 +182,9 @@ if [ -z "$API_CONTAINER" ]; then
 fi
 # 复制后端代码目录到容器
 docker cp reference-backend/app/. "$API_CONTAINER":/app/app/
+# 同时复制 alembic 迁移文件，确保容器重启时自动执行新迁移
+docker cp reference-backend/alembic/. "$API_CONTAINER":/app/alembic/
+docker cp reference-backend/alembic.ini "$API_CONTAINER":/app/alembic.ini
 ok "后端代码已注入容器"
 
 # ---- 更新前端到 web 容器 ----

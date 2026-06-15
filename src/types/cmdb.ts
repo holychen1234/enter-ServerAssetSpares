@@ -32,6 +32,10 @@ export interface Server {
   cpuCount: number;
   memoryGB: number;
   diskCount: number;
+  /** Total physical drive bays — used for slot-usage visualization.
+   *  0 means "not configured" (needed for Inspur servers where Redfish
+   *  cannot auto-detect the bay count). */
+  diskSlotCount: number;
   location: ServerLocation;
   mgmtIp: string;
   bizIp: string;
@@ -57,6 +61,24 @@ export interface Server {
 }
 
 export type Health = "OK" | "Warning" | "Critical";
+
+/** Per-backplane slot info, used to display drive form factor detail. */
+export interface SlotBackplaneInfo {
+  formFactor: string;   // "2.5" | "3.5" | ""
+  slots: number;
+}
+
+/** Slot usage summary for memory or disk. */
+export interface SlotInfo {
+  /** Total physical slots/bays.  0 = unknown (user needs to configure). */
+  total: number;
+  /** Currently occupied slots/bays. */
+  used: number;
+  /** Shorthand form factor when all backplanes are the same size. */
+  formFactor?: string;
+  /** Per-backplane breakdown (may be empty when the BMC doesn't expose it). */
+  backplanes?: SlotBackplaneInfo[];
+}
 
 /**
  * Source of the data shown in the BMC live card.
@@ -111,6 +133,10 @@ export interface BmcStatus {
     mediaType: string;
     status: string;
   }[];
+  /** Memory slot usage (total vs populated). */
+  memorySlots?: SlotInfo | null;
+  /** Disk bay usage (total vs occupied). May include form factor info. */
+  diskSlots?: SlotInfo | null;
   /** Recent BMC log entries (Redfish LogServices). */
   recentLogs?: {
     id: string;
