@@ -24,6 +24,7 @@ def _apply_payload(s: Server, body: dict):
         "cpuCount": "cpu_count",
         "memoryGB": "memory_gb",
         "diskCount": "disk_count",
+        "diskSlotCount": "disk_slot_count",
         "mgmtIp": "mgmt_ip",
         "bizIp": "biz_ip",
         "bmcProtocol": "bmc_protocol",
@@ -217,8 +218,10 @@ async def server_bmc(
     if snap:
         return {**bmc_svc.snapshot_to_status(snap), "lastCollectedAt": snap.collected_at.isoformat()}
 
-    # Last resort: live one-off without persistence (BMC totally unreachable).
-    status = await bmc_svc.get_status(s, force_refresh=True)
+    # Last resort: live one-off.  collect_and_save already tried the BMC
+    # and failed — get_status (without force_refresh) respects the cooldown
+    # and returns either a cached live payload or a simulated fallback.
+    status = await bmc_svc.get_status(s)
     return {**status, "lastCollectedAt": None}
 
 

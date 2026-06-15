@@ -32,6 +32,10 @@ export interface Server {
   cpuCount: number;
   memoryGB: number;
   diskCount: number;
+  /** Total physical drive bays — used for slot-usage visualization.
+   *  0 means "not configured" (needed for Inspur servers where Redfish
+   *  cannot auto-detect the bay count). */
+  diskSlotCount: number;
   location: ServerLocation;
   mgmtIp: string;
   bizIp: string;
@@ -56,122 +60,25 @@ export interface Server {
   updatedAt: string;
 }
 
-// ── Network Device ──────────────────────────────────────────
-
-export type NetworkDeviceType =
-  | "switch"
-  | "router"
-  | "firewall"
-  | "load_balancer";
-
-export type NetworkDeviceManufacturer =
-  | "Cisco"
-  | "Huawei"
-  | "H3C"
-  | "Arista"
-  | "Juniper"
-  | "Ruijie"
-  | "Other";
-
-export type MgmtProtocol = "ssh" | "snmp" | "telnet";
-
-export interface NetworkDevice {
-  id: string;
-  hostname: string;
-  sn: string;
-  assetTag: string;
-  deviceType: NetworkDeviceType;
-  manufacturer: NetworkDeviceManufacturer;
-  model: string;
-  firmwareVersion: string;
-  cpuModel: string;
-  cpuCount: number;
-  memoryGB: number;
-  flashGB: number;
-  mgmtIp: string;
-  mgmtProtocol: MgmtProtocol;
-  mgmtPort: number;
-  snmpCommunity: string;
-  sshUsername: string;
-  sshPassword?: string;
-  sshPasswordSet?: boolean;
-  bizIp: string;
-  vlan: string;
-  portCount: number;
-  portSpec: { name: string; type: string; speed: string; status: string; connectedTo?: string }[];
-  idc: string;
-  rack: string;
-  uPosition: string;
-  status: ServerStatus;
-  owner: string;
-  purchaseDate: string;
-  warrantyEnd: string;
-  tags: string[];
-  remark?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
-// ── Workstation ─────────────────────────────────────────────
-
-export type WorkstationManufacturer =
-  | "Dell"
-  | "HP"
-  | "Lenovo"
-  | "Apple"
-  | "Huawei"
-  | "ASUS"
-  | "Acer"
-  | "Microsoft"
-  | "Other";
-
-export type OperatingSystem =
-  | "Windows 10"
-  | "Windows 11"
-  | "macOS"
-  | "Ubuntu"
-  | "CentOS"
-  | "Other";
-
-export interface MonitorInfo {
-  model: string;
-  sizeInch: number;
-  resolution: string;
-  assetTag?: string;
-}
-
-export interface Workstation {
-  id: string;
-  hostname: string;
-  sn: string;
-  assetTag: string;
-  manufacturer: WorkstationManufacturer;
-  model: string;
-  cpuModel: string;
-  cpuCount: number;
-  memoryGB: number;
-  diskType: string;
-  diskCapacityGB: number;
-  macAddress: string;
-  os: OperatingSystem;
-  osVersion: string;
-  bizIp: string;
-  userName: string;
-  department: string;
-  monitors: MonitorInfo[];
-  officeBuilding: string;
-  floor: string;
-  seat: string;
-  status: ServerStatus;
-  purchaseDate: string;
-  warrantyEnd: string;
-  tags: string[];
-  remark?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export type Health = "OK" | "Warning" | "Critical";
+
+/** Per-backplane slot info, used to display drive form factor detail. */
+export interface SlotBackplaneInfo {
+  formFactor: string;   // "2.5" | "3.5" | ""
+  slots: number;
+}
+
+/** Slot usage summary for memory or disk. */
+export interface SlotInfo {
+  /** Total physical slots/bays.  0 = unknown (user needs to configure). */
+  total: number;
+  /** Currently occupied slots/bays. */
+  used: number;
+  /** Shorthand form factor when all backplanes are the same size. */
+  formFactor?: string;
+  /** Per-backplane breakdown (may be empty when the BMC doesn't expose it). */
+  backplanes?: SlotBackplaneInfo[];
+}
 
 /**
  * Source of the data shown in the BMC live card.
@@ -226,6 +133,10 @@ export interface BmcStatus {
     mediaType: string;
     status: string;
   }[];
+  /** Memory slot usage (total vs populated). */
+  memorySlots?: SlotInfo | null;
+  /** Disk bay usage (total vs occupied). May include form factor info. */
+  diskSlots?: SlotInfo | null;
   /** Recent BMC log entries (Redfish LogServices). */
   recentLogs?: {
     id: string;
@@ -235,7 +146,56 @@ export interface BmcStatus {
   }[];
 }
 
-export type PartCategory = "disk" | "memory" | "nic" | "optical" | "monitor" | "other";
+// ── TerminalAsset ──────────────────────────────────────────
+
+export type TerminalAssetManufacturer =
+  | "Dell"
+  | "HP"
+  | "Lenovo"
+  | "Apple"
+  | "Huawei"
+  | "ASUS"
+  | "Acer"
+  | "Microsoft"
+  | "Other";
+
+export type OperatingSystem =
+  | "Windows 10"
+  | "Windows 11"
+  | "macOS"
+  | "Ubuntu"
+  | "CentOS"
+  | "Other";
+
+/** Note: no `monitors` — by design, terminal assets do not track
+ *  display accessories during manual entry or batch import. */
+export interface TerminalAsset {
+  id: string;
+  hostname: string;
+  sn: string;
+  assetTag: string;
+  manufacturer: TerminalAssetManufacturer;
+  model: string;
+  cpuModel: string;
+  cpuCount: number;
+  memoryGB: number;
+  diskType: string;
+  diskCapacityGB: number;
+  macAddress?: string;
+  os: OperatingSystem;
+  osVersion?: string;
+  bizIp?: string;
+  userName?: string;
+  status: ServerStatus;
+  purchaseDate?: string;
+  warrantyEnd?: string;
+  tags: string[];
+  remark?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type PartCategory = "disk" | "memory" | "nic" | "optical" | "other";
 export type PartStatus = "in_stock" | "allocated" | "in_use" | "scrapped";
 export type PartItemStatus = "in_stock" | "allocated" | "in_use" | "scrapped";
 
@@ -247,8 +207,6 @@ export interface PartItem {
   location?: string;
   installedServerId?: string;
   installedServerHostname?: string;
-  installedWorkstationId?: string;
-  installedWorkstationHostname?: string;
   partBrand?: string;
   partModel?: string;
   partSpec?: string;
@@ -287,8 +245,6 @@ export interface StockMovement {
   operator: string;
   relatedServerId?: string;
   relatedServerHostname?: string;
-  relatedWorkstationId?: string;
-  relatedWorkstationHostname?: string;
   partItemId?: string;
   partItemSn?: string;
   reason: string;

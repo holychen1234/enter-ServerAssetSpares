@@ -54,6 +54,7 @@ class Server(Base):
     cpu_count = Column(Integer, nullable=False, default=1)
     memory_gb = Column(Integer, nullable=False, default=0)
     disk_count = Column(Integer, nullable=False, default=0)
+    disk_slot_count = Column(Integer, nullable=False, default=0)
     idc = Column(String(64), nullable=False)
     rack = Column(String(32), nullable=False)
     u_position = Column(String(32), nullable=False)
@@ -87,7 +88,7 @@ class Part(Base):
     __table_args__ = (CheckConstraint("stock >= 0"),)
     id = Column(CHAR(36), primary_key=True)
     category = Column(
-        Enum("disk", "memory", "nic", "optical", "monitor", "other", name="part_category"),
+        Enum("disk", "memory", "nic", "optical", "other", name="part_category"),
         nullable=False,
     )
     brand = Column(String(64), nullable=False)
@@ -129,9 +130,6 @@ class PartItem(Base):
     installed_server_id = Column(
         CHAR(36), ForeignKey("servers.id", ondelete="SET NULL"), nullable=True
     )
-    installed_workstation_id = Column(
-        CHAR(36), ForeignKey("workstations.id", ondelete="SET NULL"), nullable=True
-    )
     remark = Column(Text, nullable=True)
     created_at = Column(DateTime, default=_utc_now, nullable=False)
 
@@ -153,64 +151,27 @@ class StockMovement(Base):
     related_server_id = Column(
         CHAR(36), ForeignKey("servers.id", ondelete="SET NULL"), nullable=True
     )
-    related_workstation_id = Column(
-        CHAR(36), ForeignKey("workstations.id", ondelete="SET NULL"), nullable=True
-    )
     reason = Column(String(255), nullable=False)
     created_at = Column(DateTime, default=_utc_now, nullable=False)
 
 
-class NetworkDevice(Base):
-    __tablename__ = "network_devices"
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
     id = Column(CHAR(36), primary_key=True)
-    hostname = Column(String(128), nullable=False)
-    sn = Column(String(64), unique=True, nullable=False)
-    asset_tag = Column(String(64), unique=True, nullable=False)
-    device_type = Column(
-        Enum("switch", "router", "firewall", "load_balancer", name="device_type"),
+    actor = Column(String(64), nullable=False)
+    action = Column(String(64), nullable=False)
+    target = Column(String(128), nullable=False)
+    detail = Column(Text, nullable=True)
+    level = Column(
+        Enum("info", "warn", "danger", name="audit_level"),
         nullable=False,
-        default="switch",
+        default="info",
     )
-    manufacturer = Column(String(32), nullable=False)
-    model = Column(String(64), nullable=False)
-    firmware_version = Column(String(64), nullable=True)
-    cpu_model = Column(String(128), nullable=True)
-    cpu_count = Column(Integer, nullable=False, default=1)
-    memory_gb = Column(Integer, nullable=False, default=0)
-    flash_gb = Column(Integer, nullable=False, default=0)
-    mgmt_ip = Column(String(64), nullable=False)
-    mgmt_protocol = Column(
-        Enum("ssh", "snmp", "telnet", name="mgmt_protocol"),
-        nullable=False,
-        default="ssh",
-    )
-    mgmt_port = Column(Integer, nullable=False, default=22)
-    snmp_community = Column(String(64), nullable=True)
-    ssh_username = Column(String(64), nullable=True)
-    ssh_password = Column(String(255), nullable=True)
-    biz_ip = Column(String(64), nullable=True)
-    vlan = Column(String(32), nullable=True)
-    port_count = Column(Integer, nullable=False, default=0)
-    port_spec = Column(JSON, nullable=True)
-    idc = Column(String(64), nullable=False)
-    rack = Column(String(32), nullable=False)
-    u_position = Column(String(32), nullable=False)
-    status = Column(
-        Enum("online", "offline", "maintenance", "retired", name="ndev_status"),
-        nullable=False,
-        default="online",
-    )
-    owner = Column(String(64), nullable=True)
-    purchase_date = Column(DateTime, nullable=True)
-    warranty_end = Column(DateTime, nullable=True)
-    tags = Column(JSON, nullable=True)
-    remark = Column(Text, nullable=True)
     created_at = Column(DateTime, default=_utc_now, nullable=False)
-    updated_at = Column(DateTime, default=_utc_now, onupdate=_utc_now, nullable=False)
 
 
-class Workstation(Base):
-    __tablename__ = "workstations"
+class TerminalAsset(Base):
+    __tablename__ = "terminal_assets"
     id = Column(CHAR(36), primary_key=True)
     hostname = Column(String(128), nullable=False)
     sn = Column(String(64), unique=True, nullable=False)
@@ -227,13 +188,8 @@ class Workstation(Base):
     os_version = Column(String(64), nullable=True)
     biz_ip = Column(String(64), nullable=True)
     user_name = Column(String(64), nullable=True)
-    department = Column(String(64), nullable=True)
-    monitors = Column(JSON, nullable=True)
-    office_building = Column(String(64), nullable=True)
-    floor = Column(String(32), nullable=True)
-    seat = Column(String(32), nullable=True)
     status = Column(
-        Enum("online", "offline", "maintenance", "retired", name="ws_status"),
+        Enum("online", "offline", "maintenance", "retired", name="ta_status"),
         nullable=False,
         default="online",
     )
@@ -242,22 +198,9 @@ class Workstation(Base):
     tags = Column(JSON, nullable=True)
     remark = Column(Text, nullable=True)
     created_at = Column(DateTime, default=_utc_now, nullable=False)
-    updated_at = Column(DateTime, default=_utc_now, onupdate=_utc_now, nullable=False)
-
-
-class AuditLog(Base):
-    __tablename__ = "audit_logs"
-    id = Column(CHAR(36), primary_key=True)
-    actor = Column(String(64), nullable=False)
-    action = Column(String(64), nullable=False)
-    target = Column(String(128), nullable=False)
-    detail = Column(Text, nullable=True)
-    level = Column(
-        Enum("info", "warn", "danger", name="audit_level"),
-        nullable=False,
-        default="info",
+    updated_at = Column(
+        DateTime, default=_utc_now, onupdate=_utc_now, nullable=False
     )
-    created_at = Column(DateTime, default=_utc_now, nullable=False)
 
 
 class BmcSnapshot(Base):
@@ -281,6 +224,8 @@ class BmcSnapshot(Base):
     drives = Column(JSON, nullable=True)
     fans = Column(JSON, nullable=True)
     psus = Column(JSON, nullable=True)
+    memory_slots = Column(JSON, nullable=True)
+    disk_slots = Column(JSON, nullable=True)
     recent_logs = Column(JSON, nullable=True)
     history = Column(JSON, nullable=True)
     alerts = Column(JSON, nullable=True)

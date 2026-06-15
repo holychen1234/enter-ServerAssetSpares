@@ -1,16 +1,7 @@
 from datetime import datetime, timezone
 from typing import Iterable
 
-from app.db.models import (
-    AuditLog,
-    NetworkDevice,
-    Part,
-    PartItem,
-    Profile,
-    Server,
-    StockMovement,
-    Workstation,
-)
+from app.db.models import AuditLog, Part, PartItem, Profile, Server, StockMovement, TerminalAsset
 
 
 def _iso(dt: datetime | None) -> str:
@@ -34,6 +25,7 @@ def server_to_dict(s: Server) -> dict:
         "cpuCount": s.cpu_count,
         "memoryGB": s.memory_gb,
         "diskCount": s.disk_count,
+        "diskSlotCount": s.disk_slot_count,
         "location": {
             "idc": s.idc,
             "rack": s.rack,
@@ -57,82 +49,7 @@ def server_to_dict(s: Server) -> dict:
     }
 
 
-def network_device_to_dict(nd: NetworkDevice) -> dict:
-    return {
-        "id": nd.id,
-        "hostname": nd.hostname,
-        "sn": nd.sn,
-        "assetTag": nd.asset_tag,
-        "deviceType": nd.device_type,
-        "manufacturer": nd.manufacturer,
-        "model": nd.model,
-        "firmwareVersion": nd.firmware_version or "",
-        "cpuModel": nd.cpu_model or "",
-        "cpuCount": nd.cpu_count,
-        "memoryGB": nd.memory_gb,
-        "flashGB": nd.flash_gb,
-        "mgmtIp": nd.mgmt_ip,
-        "mgmtProtocol": nd.mgmt_protocol,
-        "mgmtPort": nd.mgmt_port,
-        "snmpCommunity": nd.snmp_community or "",
-        "sshUsername": nd.ssh_username or "",
-        "sshPasswordSet": bool(nd.ssh_password),
-        "bizIp": nd.biz_ip or "",
-        "vlan": nd.vlan or "",
-        "portCount": nd.port_count,
-        "portSpec": nd.port_spec or [],
-        "idc": nd.idc,
-        "rack": nd.rack,
-        "uPosition": nd.u_position,
-        "status": nd.status,
-        "owner": nd.owner or "",
-        "purchaseDate": nd.purchase_date.isoformat() if isinstance(nd.purchase_date, (datetime,)) else (nd.purchase_date or ""),
-        "warrantyEnd": nd.warranty_end.isoformat() if isinstance(nd.warranty_end, (datetime,)) else (nd.warranty_end or ""),
-        "tags": nd.tags or [],
-        "remark": nd.remark,
-        "createdAt": _iso(nd.created_at),
-        "updatedAt": _iso(nd.updated_at),
-    }
-
-
-def workstation_to_dict(ws: Workstation) -> dict:
-    return {
-        "id": ws.id,
-        "hostname": ws.hostname,
-        "sn": ws.sn,
-        "assetTag": ws.asset_tag,
-        "manufacturer": ws.manufacturer,
-        "model": ws.model,
-        "cpuModel": ws.cpu_model,
-        "cpuCount": ws.cpu_count,
-        "memoryGB": ws.memory_gb,
-        "diskType": ws.disk_type,
-        "diskCapacityGB": ws.disk_capacity_gb,
-        "macAddress": ws.mac_address or "",
-        "os": ws.os,
-        "osVersion": ws.os_version or "",
-        "bizIp": ws.biz_ip or "",
-        "userName": ws.user_name or "",
-        "department": ws.department or "",
-        "monitors": ws.monitors or [],
-        "officeBuilding": ws.office_building or "",
-        "floor": ws.floor or "",
-        "seat": ws.seat or "",
-        "status": ws.status,
-        "purchaseDate": ws.purchase_date.isoformat() if isinstance(ws.purchase_date, (datetime,)) else (ws.purchase_date or ""),
-        "warrantyEnd": ws.warranty_end.isoformat() if isinstance(ws.warranty_end, (datetime,)) else (ws.warranty_end or ""),
-        "tags": ws.tags or [],
-        "remark": ws.remark,
-        "createdAt": _iso(ws.created_at),
-        "updatedAt": _iso(ws.updated_at),
-    }
-
-
-def item_to_dict(
-    it: PartItem,
-    server_hostname: str | None = None,
-    workstation_hostname: str | None = None,
-) -> dict:
+def item_to_dict(it: PartItem, server_hostname: str | None = None) -> dict:
     return {
         "id": it.id,
         "partId": it.part_id,
@@ -141,8 +58,6 @@ def item_to_dict(
         "location": it.location,
         "installedServerId": it.installed_server_id,
         "installedServerHostname": server_hostname,
-        "installedWorkstationId": it.installed_workstation_id,
-        "installedWorkstationHostname": workstation_hostname,
         "remark": it.remark,
         "createdAt": _iso(it.created_at),
     }
@@ -201,7 +116,6 @@ def movement_to_dict(
     part: Part | None,
     server: Server | None,
     part_item: PartItem | None = None,
-    workstation: Workstation | None = None,
 ) -> dict:
     return {
         "id": m.id,
@@ -213,8 +127,6 @@ def movement_to_dict(
         "operator": m.operator,
         "relatedServerId": m.related_server_id,
         "relatedServerHostname": server.hostname if server else None,
-        "relatedWorkstationId": m.related_workstation_id,
-        "relatedWorkstationHostname": workstation.hostname if workstation else None,
         "partItemId": m.part_item_id,
         "partItemSn": part_item.sn if part_item else None,
         "reason": m.reason,
@@ -224,3 +136,31 @@ def movement_to_dict(
 
 def to_list(items: Iterable, fn) -> list:
     return [fn(x) for x in items]
+
+
+def terminal_asset_to_dict(ta) -> dict:
+    return {
+        "id": ta.id,
+        "hostname": ta.hostname,
+        "sn": ta.sn,
+        "assetTag": ta.asset_tag,
+        "manufacturer": ta.manufacturer,
+        "model": ta.model,
+        "cpuModel": ta.cpu_model,
+        "cpuCount": ta.cpu_count,
+        "memoryGB": ta.memory_gb,
+        "diskType": ta.disk_type,
+        "diskCapacityGB": ta.disk_capacity_gb,
+        "macAddress": ta.mac_address or "",
+        "os": ta.os,
+        "osVersion": ta.os_version or "",
+        "bizIp": ta.biz_ip or "",
+        "userName": ta.user_name or "",
+        "status": ta.status,
+        "purchaseDate": ta.purchase_date.isoformat() if isinstance(ta.purchase_date, (datetime,)) else (ta.purchase_date or ""),
+        "warrantyEnd": ta.warranty_end.isoformat() if isinstance(ta.warranty_end, (datetime,)) else (ta.warranty_end or ""),
+        "tags": ta.tags or [],
+        "remark": ta.remark,
+        "createdAt": _iso(ta.created_at),
+        "updatedAt": _iso(ta.updated_at),
+    }

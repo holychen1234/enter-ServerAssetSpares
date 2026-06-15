@@ -55,7 +55,7 @@ HISTORY_INTERVAL_LABEL = "5m"  # purely cosmetic — used for x-axis ticks
 
 # Limit concurrent HTTP requests to a single BMC so we don't overwhelm
 # its management controller (many BMCs cap at 4–8 simultaneous sessions).
-_BMC_SEMAPHORE = asyncio.Semaphore(6)
+_BMC_SEMAPHORE = asyncio.Semaphore(3)
 
 
 # ---------------------------------------------------------------------------
@@ -198,13 +198,341 @@ def _simulate(server: Server) -> dict:
         ),
         "memoryModules": [],
         "drives": drives,
+        "memorySlots": None,
+        "diskSlots": (
+            {"total": server.disk_slot_count, "used": disk_count}
+            if server.disk_slot_count > 0 and disk_count > 0
+            else None
+        ),
         "recentLogs": recent_logs,
     }
 
 
 # ---------------------------------------------------------------------------
+# Slot detection strategies (vendor-extensible pattern)
+#
+# Each vendor implements a subclass of ``SlotDetectionStrategy``.  To add a
+# new vendor you only need to:
+#   1. Subclass ``SlotDetectionStrategy``
+#   2. Register it in ``SLOT_STRATEGIES``
+# No other code changes are required.
+# ---------------------------------------------------------------------------
+class SlotDetectionStrategy:
+    """Base strategy for detecting memory/disk slot totals.
+
+    Subclasses override the methods they can support.  The default
+    returns 0 (unknown) for totals and an empty list for backplane info.
+    """
+
+    async def get_memory_slot_total(
+        self,
+        client: httpx.AsyncClient,
+        base: str,
+        system_path: str,
+        chassis_path: str,
+    ) -> int:
+        return 0
+
+    async def get_disk_slot_total(
+        self,
+        client: httpx.AsyncClient,
+        base: str,
+        chassis_path: str,
+    ) -> int:
+        return 0
+
+    async def get_disk_backplane_info(
+        self,
+        client: httpx.AsyncClient,
+        base: str,
+        chassis_path: str,
+    ) -> list[dict]:
+        return []
+
+
+class _DellSlotStrategy(SlotDetectionStrategy):
+    """Dell PowerEdge — OEM properties under ``Oem.Dell``."""
+
+    async def get_memory_slot_total(self, client, base, system_path, chassis_path):
+        try:
+            r = await client.get(f"{base}/{system_path}")
+            if r.status_code == 200:
+                data = r.json() or {}
+                return int(_deep_get(data, "Oem", "Dell", "DellSystem", "MaxDIMMSlots") or 0)
+        except Exception:
+            pass
+        return 0
+
+    async def get_disk_slot_total(self, client, base, chassis_path):
+        # Dell StorageEnclosure chassis carry SlotCount in OEM.
+        # Discover them from the Chassis collection instead of Links
+        # (some Dell BMCs don't populate ContainsChassis on the main Chassis).
+        try:
+            coll = await client.get(f"{base}/redfish/v1/Chassis")
+            if coll.status_code != 200:
+                return 0
+            members = (coll.json() or {}).get("Members") or []
+            total = 0
+            for m in members:
+                href = m.get("@odata.id")
+                if not href:
+                    continue
+                try:
+                    enc = await client.get(f"{base}{href}")
+                    if enc.status_code != 200:
+                        continue
+                    enc_data = enc.json() or {}
+                    if enc_data.get("ChassisType") != "StorageEnclosure":
+                        continue
+                    sc = _deep_get(enc_data, "Oem", "Dell", "DellChassisEnclosure", "SlotCount")
+                    if sc:
+                        total += int(sc)
+                except Exception:
+                    continue
+            return total
+        except Exception:
+            return 0
+
+    async def get_disk_backplane_info(self, client, base, chassis_path):
+        # Dell StorageEnclosure carries SlotCount; form factor may be
+        # inferred from enclosure name or missing altogether.
+        info: list[dict] = []
+        try:
+            coll = await client.get(f"{base}/redfish/v1/Chassis")
+            if coll.status_code != 200:
+                return info
+            members = (coll.json() or {}).get("Members") or []
+            for m in members:
+                href = m.get("@odata.id")
+                if not href:
+                    continue
+                try:
+                    enc = await client.get(f"{base}{href}")
+                    if enc.status_code != 200:
+                        continue
+                    enc_data = enc.json() or {}
+                    if enc_data.get("ChassisType") != "StorageEnclosure":
+                        continue
+                    sc = _deep_get(enc_data, "Oem", "Dell", "DellChassisEnclosure", "SlotCount")
+                    # Try to extract form factor from enclosure name (e.g. "BP14G+ 0:1"
+                    # usually means 2.5" — Dell backplane naming)
+                    name = enc_data.get("Name") or ""
+                    # Purely informational; default to empty if unclear
+                    ff = ""
+                    if "BP14G" in name or "BP14" in name:
+                        ff = "2.5"
+                    elif "BP12G" in name or "BP12" in name:
+                        ff = "3.5"
+                    if sc:
+                        info.append({"formFactor": ff, "slots": int(sc)})
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        return info
+
+
+class _XFusionSlotStrategy(SlotDetectionStrategy):
+    """XFusion (超聚变) — OEM properties under ``Oem.xFusion``."""
+
+    async def get_memory_slot_total(self, client, base, system_path, chassis_path):
+        try:
+            r = await client.get(f"{base}/{chassis_path}")
+            if r.status_code == 200:
+                data = r.json() or {}
+                return int(_deep_get(data, "Oem", "xFusion", "DeviceMaxNum", "MemoryNum") or 0)
+        except Exception:
+            pass
+        return 0
+
+    async def get_disk_slot_total(self, client, base, chassis_path):
+        backplanes = await self.get_disk_backplane_info(client, base, chassis_path)
+        return sum(bp.get("slots", 0) for bp in backplanes)
+
+    async def get_disk_backplane_info(self, client, base, chassis_path):
+        """Parse backplane Description strings like '8*2.5' to extract
+        per-backplane slot count and form factor."""
+        info: list[dict] = []
+        try:
+            r = await client.get(f"{base}/{chassis_path}/Boards")
+            if r.status_code != 200:
+                return info
+            members = (r.json() or {}).get("Members") or []
+            for m in members:
+                href = m.get("@odata.id")
+                if not href:
+                    continue
+                try:
+                    bp = await client.get(f"{base}{href}")
+                    if bp.status_code != 200:
+                        continue
+                    bp_data = bp.json() or {}
+                    # Check DeviceType / BoardProduct for backplane indicator
+                    desc = bp_data.get("Description") or ""
+                    device_type = bp_data.get("DeviceType") or ""
+                    board_product = (
+                        (bp_data.get("board") or {}).get("Board Product") or ""
+                    )
+                    if "Backplane" in device_type or "DiskBackplane" in device_type or "BP" in board_product:
+                        # Parse "N*F.F" pattern from Description
+                        m2 = re.search(r"(\d+)\*(\d+\.?\d*)", desc)
+                        if m2:
+                            info.append({
+                                "formFactor": m2.group(2),
+                                "slots": int(m2.group(1)),
+                            })
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        return info
+
+
+class _InspurSlotStrategy(SlotDetectionStrategy):
+    """Inspur (浪潮) — OEM properties under ``Oem.Public``."""
+
+    async def get_memory_slot_total(self, client, base, system_path, chassis_path):
+        try:
+            r = await client.get(f"{base}/{chassis_path}")
+            if r.status_code == 200:
+                data = r.json() or {}
+                return int(_deep_get(data, "Oem", "Public", "DeviceMaxNum", "MemoryNum") or 0)
+        except Exception:
+            pass
+        return 0
+
+    # Inspur disk slot total CANNOT be auto-detected (DeviceMaxNum.DiskNum=0,
+    # DriveSlots returns 1010, backplanes carry no slot count).  Return 0 to
+    # signal "unknown — use server.disk_slot_count fallback".
+
+
+class _GenericSlotStrategy(SlotDetectionStrategy):
+    """Fallback: try Dell → XFusion → Inspur paths in order."""
+
+    _delegates: list[SlotDetectionStrategy] = []
+
+    def __init__(self):
+        if not self._delegates:
+            self._delegates = [
+                _DellSlotStrategy(),
+                _XFusionSlotStrategy(),
+                _InspurSlotStrategy(),
+            ]
+
+    async def get_memory_slot_total(self, client, base, system_path, chassis_path):
+        for d in self._delegates:
+            v = await d.get_memory_slot_total(client, base, system_path, chassis_path)
+            if v > 0:
+                return v
+        return 0
+
+    async def get_disk_slot_total(self, client, base, chassis_path):
+        for d in self._delegates:
+            v = await d.get_disk_slot_total(client, base, chassis_path)
+            if v > 0:
+                return v
+        return 0
+
+    async def get_disk_backplane_info(self, client, base, chassis_path):
+        for d in self._delegates:
+            info = await d.get_disk_backplane_info(client, base, chassis_path)
+            if info:
+                return info
+        return []
+
+
+# Registry: manufacturer name → strategy instance.
+# Keys should match the values stored in the ``servers.manufacturer`` column.
+SLOT_STRATEGIES: dict[str, SlotDetectionStrategy] = {
+    "Dell": _DellSlotStrategy(),
+    "XFusion": _XFusionSlotStrategy(),
+    "Inspur": _InspurSlotStrategy(),
+}
+_FALLBACK_STRATEGY = _GenericSlotStrategy()
+
+
+def _get_slot_strategy(manufacturer: str) -> SlotDetectionStrategy:
+    """Resolve the slot-detection strategy for a given manufacturer."""
+    if not manufacturer:
+        return _FALLBACK_STRATEGY
+    # Case-insensitive lookup
+    for key, strategy in SLOT_STRATEGIES.items():
+        if key.lower() == manufacturer.lower():
+            return strategy
+    return _FALLBACK_STRATEGY
+
+
+def _compute_slot_usage(
+    drives: list[dict] | None,
+    memory_modules: list[dict] | None,
+) -> tuple[dict, dict]:
+    """Count real (non-placeholder) drives and memory modules.
+
+    Returns ``(memory_slots_used_dict, disk_slots_used_dict)`` where each
+    dict only contains the ``"used"`` key.
+    """
+    # A drive is "real" if it has a model, SN, or positive capacity.
+    disk_used = 0
+    for d in (drives or []):
+        model = d.get("model", "")
+        sn = d.get("sn")
+        cap = d.get("capacityGB", 0)
+        if (model and model != "—") or sn or (cap and cap > 0):
+            disk_used += 1
+
+    # Memory modules: all members returned by the BMC are treated as occupied
+    # (empty slots don't appear in the Memory collection).
+    mem_used = len(memory_modules or [])
+
+    return {"used": mem_used}, {"used": disk_used}
+
+
+def _build_slot_info(
+    total: int,
+    used: int,
+    backplanes: list[dict] | None = None,
+) -> dict | None:
+    """Build a ``memorySlots`` / ``diskSlots`` dict for the frontend.
+
+    Returns ``None`` when there is no data at all (both total and used are 0).
+    """
+    if total == 0 and used == 0:
+        return None
+    result: dict[str, Any] = {"total": total, "used": used}
+    if backplanes:
+        result["backplanes"] = backplanes
+        # If all backplanes share the same form factor, add a top-level
+        # shorthand so the UI can render a compact label.
+        form_factors = {bp.get("formFactor", "") for bp in backplanes}
+        if len(form_factors) == 1 and "" not in form_factors:
+            result["formFactor"] = next(iter(form_factors))
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Redfish
 # ---------------------------------------------------------------------------
+async def _tcp_reachable(mgmt_ip: str, port: int = 443, timeout: float = 3.0) -> bool:
+    """Quick TCP pre-check — returns False in ~3s if the BMC is firewalled."""
+    try:
+        _, writer = await asyncio.wait_for(
+            asyncio.open_connection(mgmt_ip, port),
+            timeout=timeout,
+        )
+        writer.close()
+        await writer.wait_closed()
+        return True
+    except Exception:
+        return False
+
+
+def _deep_get(d: dict, *keys: str) -> Any:
+    """Safely traverse a nested dict path, returning None on any miss."""
+    for k in keys:
+        if not isinstance(d, dict):
+            return None
+        d = d.get(k)
+    return d
 def _redfish_base(server: Server) -> str:
     """Return a URL we can hit with ``GET <base>/redfish/v1/...``."""
     if server.mgmt_ip:
@@ -281,6 +609,14 @@ async def _redfish_storage_drives(
         drives = await _redfish_chassis_drives(client, base)
         if drives:
             logger.debug("redfish storage: got %d drives via Path 3 (Chassis/Drives)", len(drives))
+            return drives
+        # Path 4: Deep-drill Storage controllers (Inspur / some H3C). Some
+        # BMCs report controllers in /Systems/X/Storage but don't surface
+        # drives via the standard Members→Drives array. We fetch each
+        # controller and try Links.Drives or /Drives sub-path directly.
+        drives = await _redfish_storage_deep(client, base, system_path)
+        if drives:
+            logger.debug("redfish storage: got %d drives via Path 4 (Storage deep)", len(drives))
     except Exception:
         pass  # Storage isn't critical — keep returning what we have
     return drives
@@ -429,12 +765,13 @@ async def _redfish_chassis_drives(
                 continue
             d = dr.json() or {}
             cap_bytes = d.get("CapacityBytes") or 0
-            # Skip placeholder entries where the BMC reports null for all
-            # meaningful fields (e.g. Inspur / XFusion providing
-            # Chassis/Drives member stubs with no actual drive data).
+            # Skip placeholder entries: if the drive has no Model, no SN
+            # AND zero capacity, it's a stub. But if any one field is
+            # present, keep it — some Inspur BMCs report valid drives
+            # with zero capacity but have a model name.
             model = d.get("Model")
             sn = d.get("SerialNumber")
-            if cap_bytes == 0 and model is None and sn is None:
+            if not model and not sn and cap_bytes == 0:
                 continue
             drives.append(
                 {
@@ -448,6 +785,107 @@ async def _redfish_chassis_drives(
                     "status": ((d.get("Status") or {}).get("Health")) or "OK",
                 }
             )
+    except Exception:
+        pass
+    return drives
+
+
+async def _redfish_storage_deep(
+    client: httpx.AsyncClient, base: str, system_path: str
+) -> list[dict]:
+    """Path 4: Deep-drill each Storage controller for drives (Inspur / H3C).
+
+    Some BMCs report controllers under /Systems/X/Storage but do not
+    populate the Drives array on the collection-level members response.
+    We fetch each controller individually and look for drives in:
+      - ``Links/Drives`` (Inspur sometimes puts drives there)
+      - ``/Drives`` sub-path on each controller
+    """
+    drives: list[dict] = []
+    try:
+        coll = await client.get(f"{base}/{system_path}/Storage")
+        if coll.status_code != 200:
+            return drives
+        members = (coll.json() or {}).get("Members") or []
+        if not members:
+            return drives
+
+        async def _deep_drill(m) -> list[dict]:
+            href = m.get("@odata.id")
+            if not href:
+                return []
+            try:
+                ctrl = await client.get(f"{base}{href}")
+            except Exception:
+                return []
+            if ctrl.status_code != 200:
+                return []
+            ctrl_data = ctrl.json() or {}
+            found: list[dict] = []
+
+            # Try Links → Drives (Inspur / H3C sometimes use this)
+            for link_ref in (ctrl_data.get("Links") or {}).get("Drives") or []:
+                drive_href = link_ref.get("@odata.id")
+                if not drive_href:
+                    continue
+                try:
+                    dr = await client.get(f"{base}{drive_href}")
+                except Exception:
+                    continue
+                if dr.status_code != 200:
+                    continue
+                d = dr.json() or {}
+                cap_bytes = d.get("CapacityBytes") or 0
+                found.append({
+                    "name": d.get("Name") or d.get("Id") or "?",
+                    "model": d.get("Model") or "—",
+                    "sn": d.get("SerialNumber") or None,
+                    "capacityGB": round(cap_bytes / (1024**3), 0) if cap_bytes else 0,
+                    "mediaType": d.get("MediaType") or "—",
+                    "status": ((d.get("Status") or {}).get("Health")) or "OK",
+                })
+                continue
+
+            # Try /Drives sub-path on the controller
+            if not found:
+                try:
+                    dr_coll = await client.get(f"{base}{href}/Drives")
+                except Exception:
+                    return found
+                if dr_coll.status_code == 200:
+                    for dm in (dr_coll.json() or {}).get("Members") or []:
+                        dh = dm.get("@odata.id")
+                        if not dh:
+                            continue
+                        try:
+                            dr = await client.get(f"{base}{dh}")
+                        except Exception:
+                            continue
+                        if dr.status_code != 200:
+                            continue
+                        d = dr.json() or {}
+                        cap_bytes = d.get("CapacityBytes") or 0
+                        model = d.get("Model")
+                        sn = d.get("SerialNumber")
+                        if not model and not sn and cap_bytes == 0:
+                            continue
+                        found.append({
+                            "name": d.get("Name") or d.get("Id") or "?",
+                            "model": model or "—",
+                            "sn": sn or None,
+                            "capacityGB": round(cap_bytes / (1024**3), 0) if cap_bytes else 0,
+                            "mediaType": d.get("MediaType") or "—",
+                            "status": ((d.get("Status") or {}).get("Health")) or "OK",
+                        })
+            return found
+
+        results = await asyncio.gather(
+            *[_deep_drill(m) for m in members],
+            return_exceptions=True,
+        )
+        for r in results:
+            if isinstance(r, list):
+                drives.extend(r)
     except Exception:
         pass
     return drives
@@ -470,6 +908,23 @@ async def _redfish_memory_dims(
     except Exception:
         return dims
 
+    if not members:
+        # Fallback: some Inspur BMCs expose memory under
+        # /MemoryDomains/{domain}/Memory instead of /Memory directly.
+        try:
+            dm_coll = await client.get(f"{base}/{system_path}/MemoryDomains")
+            if dm_coll.status_code == 200:
+                for dm_member in (dm_coll.json() or {}).get("Members") or []:
+                    dm_href = dm_member.get("@odata.id")
+                    if not dm_href:
+                        continue
+                    dm_res = await client.get(f"{base}{dm_href}/Memory")
+                    if dm_res.status_code == 200:
+                        members = (dm_res.json() or {}).get("Members") or []
+                        if members:
+                            break
+        except Exception:
+            pass
     if not members:
         return dims
 
@@ -589,10 +1044,13 @@ async def _redfish_session_auth(
 async def _redfish_delete_session(
     client: httpx.AsyncClient, base: str, session_uri: str
 ) -> None:
-    """DELETE a Redfish session to avoid hitting BMC session limits."""
+    """DELETE a Redfish session to avoid hitting BMC session limits.
+    Exceptions are logged but never propagated — session leaks are
+    tolerable, poll failures are not."""
     try:
         await client.delete(f"{base}{session_uri}")
-    except Exception:
+    except Exception as exc:
+        logger.debug("session DELETE failed for %s: %s", base, exc)
         pass
 
 
@@ -625,14 +1083,21 @@ async def _collect_redfish(server: Server) -> dict | None:
                     _redfish_first_member(client, base, "Systems"),
                 )
                 if not chassis_path or not system_path:
-                    logger.warning(
-                        "redfish discovery failed for %s (manufacturer=%s)",
-                        server.id,
-                        server.manufacturer,
-                    )
-                    return None
+                    # Fallback: some BMCs (older XFusion, some Inspur) expose
+                    # Chassis/Systems at the root member index 1 but don't
+                    # list it in the collection Members array.
+                    if not chassis_path:
+                        chassis_path = "redfish/v1/Chassis/1"
+                        logger.info("chassis fallback → %s for %s", chassis_path, server.id)
+                    if not system_path:
+                        system_path = "redfish/v1/Systems/1"
+                        logger.info("system fallback → %s for %s", system_path, server.id)
 
-                thermal_res, power_res, system_res, drives, mem_modules, logs = (
+                # Resolve slot-detection strategy for this vendor
+                slot_strategy = _get_slot_strategy(server.manufacturer)
+
+                thermal_res, power_res, system_res, drives, mem_modules, logs, \
+                    memory_slot_total, disk_slot_total, backplane_info = (
                     await asyncio.gather(
                         client.get(f"{base}/{chassis_path}/Thermal"),
                         client.get(f"{base}/{chassis_path}/Power"),
@@ -640,6 +1105,15 @@ async def _collect_redfish(server: Server) -> dict | None:
                         _redfish_storage_drives(client, base, system_path),
                         _redfish_memory_dims(client, base, system_path),
                         _redfish_recent_logs(client, base),
+                        slot_strategy.get_memory_slot_total(
+                            client, base, system_path, chassis_path,
+                        ),
+                        slot_strategy.get_disk_slot_total(
+                            client, base, chassis_path,
+                        ),
+                        slot_strategy.get_disk_backplane_info(
+                            client, base, chassis_path,
+                        ),
                     )
                 )
 
@@ -719,6 +1193,16 @@ async def _collect_redfish(server: Server) -> dict | None:
                     else None
                 )
 
+                # Compute slot usage from collected data
+                mem_used, disk_used = _compute_slot_usage(drives, mem_modules)
+                # Disk total: prefer auto-detection, fall back to manual
+                # server.disk_slot_count (needed for Inspur)
+                _disk_total = disk_slot_total or (
+                    server.disk_slot_count if server.disk_slot_count > 0 else 0
+                )
+                memory_slots = _build_slot_info(memory_slot_total, mem_used["used"])
+                disk_slots = _build_slot_info(_disk_total, disk_used["used"], backplane_info)
+
                 return {
                     "power": (
                         "On" if (system.get("PowerState") == "On") else "Off"
@@ -738,6 +1222,8 @@ async def _collect_redfish(server: Server) -> dict | None:
                     "memorySummary": memory,
                     "memoryModules": mem_modules or None,
                     "drives": drives or None,
+                    "memorySlots": memory_slots,
+                    "diskSlots": disk_slots,
                     "recentLogs": logs or None,
                 }
             finally:
@@ -887,10 +1373,20 @@ async def get_status(server: Server, *, force_refresh: bool = False) -> dict:
 
     live: dict | None = None
     if not is_offline:
-        if server.bmc_protocol == "redfish":
-            live = await _collect_redfish(server)
-        elif server.bmc_protocol == "ipmi":
-            live = await asyncio.to_thread(_collect_ipmi, server)
+        try:
+            if server.bmc_protocol == "redfish":
+                live = await asyncio.wait_for(
+                    _collect_redfish(server),
+                    timeout=settings.redfish_timeout_seconds + 10,
+                )
+            else:
+                live = await asyncio.wait_for(
+                    asyncio.to_thread(_collect_ipmi, server),
+                    timeout=settings.redfish_timeout_seconds + 10,
+                )
+        except asyncio.TimeoutError:
+            logger.warning("get_status timeout for %s (ip=%s)", server.id, server.mgmt_ip)
+            live = None
 
     if live:
         # Merge real values on top of the simulated skeleton (so we still
@@ -980,16 +1476,54 @@ def invalidate_cache(server_id: str | None = None) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Failed-host cooldown — used by the weekly auto-poller (main.py) to avoid
+# retrying unreachable BMCs on every cycle.  Manual refresh always bypasses
+# the cooldown.
+# ---------------------------------------------------------------------------
+_FAILED_HOSTS: dict[str, float] = {}           # ip → next_retry_timestamp
+_COOLDOWN_SECONDS: float = 3600.0 * 3           # 3 hours before retry
+
+
+def _set_cooldown(mgmt_ip: str | None) -> None:
+    if mgmt_ip:
+        _FAILED_HOSTS[mgmt_ip] = time.time() + _COOLDOWN_SECONDS
+
+
+def _clear_cooldown(mgmt_ip: str | None) -> None:
+    if mgmt_ip:
+        _FAILED_HOSTS.pop(mgmt_ip, None)
+
+
+def _in_cooldown(mgmt_ip: str | None) -> bool:
+    if not mgmt_ip:
+        return False
+    next_retry = _FAILED_HOSTS.get(mgmt_ip)
+    return next_retry is not None and time.time() < next_retry
+
+
+# ---------------------------------------------------------------------------
 # Persistence layer — store BMC snapshots in DB so the UI never shows
 # simulated data and we don't hammer the BMC more than once per day.
 # ---------------------------------------------------------------------------
 async def collect_and_save(server: Server) -> BmcSnapshot | None:
     """Poll the BMC once, persist the result to the database, and return the
     snapshot row.  Returns None when the BMC is unreachable."""
+    # Fast TCP pre-check (3s) — avoid a 70s Redfish timeout when the BMC
+    # is behind a firewall or powered off.
+    if server.mgmt_ip and not await _tcp_reachable(server.mgmt_ip):
+        logger.info("bmc snapshot skipped for %s — tcp unreachable (ip=%s)", server.id, server.mgmt_ip)
+        _set_cooldown(server.mgmt_ip)
+        return None
     payload = await get_status(server, force_refresh=True)
     if payload.get("source") != "live":
         logger.info("bmc snapshot skipped for %s — source=%s", server.id, payload.get("source"))
+        _set_cooldown(server.mgmt_ip)
         return None
+
+    # Successful live poll — clear the cooldown so the weekly poll will
+    # try this host again, and the latest data overwrites whatever was
+    # stored by the last auto-poll.
+    _clear_cooldown(server.mgmt_ip)
 
     db = SessionLocal()
     try:
@@ -1006,6 +1540,8 @@ async def collect_and_save(server: Server) -> BmcSnapshot | None:
             memory_summary=payload.get("memorySummary"),
             memory_modules=payload.get("memoryModules"),
             drives=payload.get("drives"),
+            memory_slots=payload.get("memorySlots"),
+            disk_slots=payload.get("diskSlots"),
             fans=payload.get("fans"),
             psus=payload.get("psus"),
             recent_logs=payload.get("recentLogs"),
@@ -1052,6 +1588,8 @@ def snapshot_to_status(snap: BmcSnapshot) -> dict:
         "memorySummary": snap.memory_summary,
         "memoryModules": snap.memory_modules or [],
         "drives": snap.drives or [],
+        "memorySlots": snap.memory_slots,
+        "diskSlots": snap.disk_slots,
         "fans": snap.fans or [],
         "psus": snap.psus or [],
         "recentLogs": snap.recent_logs or [],

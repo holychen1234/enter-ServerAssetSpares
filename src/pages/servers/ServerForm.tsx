@@ -32,6 +32,7 @@ const schema = z.object({
   cpuModel: z.string().min(1, "必填"),
   cpuCount: z.coerce.number().int().min(1).max(8),
   memoryGB: z.coerce.number().int().min(1),
+  diskSlotCount: z.coerce.number().int().min(0).optional(),
   idc: z.string().min(1, "必填"),
   rack: z.string().min(1, "必填"),
   uPosition: z.string().min(1, "必填"),
@@ -66,6 +67,7 @@ const EMPTY: ServerFormData = {
   cpuModel: "",
   cpuCount: 2,
   memoryGB: 64,
+  diskSlotCount: 0,
   idc: "",
   rack: "",
   uPosition: "",
@@ -100,6 +102,7 @@ export function ServerForm({ open, initial, onClose, onSubmit }: Props) {
           cpuModel: initial.cpuModel,
           cpuCount: initial.cpuCount,
           memoryGB: initial.memoryGB,
+          diskSlotCount: initial.diskSlotCount ?? 0,
           idc: initial.location.idc,
           rack: initial.location.rack,
           uPosition: initial.location.uPosition,
@@ -134,6 +137,7 @@ export function ServerForm({ open, initial, onClose, onSubmit }: Props) {
       cpuCount: values.cpuCount,
       memoryGB: values.memoryGB,
       diskCount: (initial?.diskCount ?? 0),
+      diskSlotCount: values.diskSlotCount ?? 0,
       location: { idc: values.idc, rack: values.rack, uPosition: values.uPosition },
       mgmtIp: values.mgmtIp,
       bizIp: values.bizIp,
@@ -188,6 +192,17 @@ export function ServerForm({ open, initial, onClose, onSubmit }: Props) {
           </Field>
           <Field label="内存 (GB)">
             <Input type="number" min={1} {...form.register("memoryGB")} />
+          </Field>
+          <Field label="硬盘位数量" className="sm:col-span-2">
+            <Input
+              type="number"
+              min={0}
+              placeholder="0 表示未知（Inspur 等机型需手动填写）"
+              {...form.register("diskSlotCount")}
+            />
+            <p className="mt-1 text-[11px] text-warning">
+              部分机型（如 Inspur 浪潮）无法通过 Redfish 自动检测硬盘位数量，请在此手动填写。留空或填 0 表示未知。
+            </p>
           </Field>
           <Field label="IDC">
             <Input {...form.register("idc")} placeholder="BJ-IDC-A" />

@@ -17,6 +17,14 @@ services:
   mysql:
     image: mysql:8.0
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+        reservations:
+          cpus: "0.5"
+          memory: 512M
     command:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_unicode_ci
@@ -44,11 +52,14 @@ services:
       retries: 30
 
   api:
+    build:
+      context: ./reference-backend
+      dockerfile: Dockerfile
     image: reference-backend-api:latest
     restart: unless-stopped
     env_file: reference-backend/.env
     environment:
-      AI_API_KEY: ${AI_API_KEY:-c5d15c906d4a9439415fb65d3de2a27c}
+      AI_API_KEY: ${AI_API_KEY}
     ports:
       - "${API_PORT:-8001}:8000"
     depends_on:

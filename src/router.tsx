@@ -5,10 +5,8 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import ServerList from "./pages/servers/ServerList";
 import ServerDetail from "./pages/servers/ServerDetail";
-import NetworkDeviceList from "./pages/network-devices/NetworkDeviceList";
-import NetworkDeviceDetail from "./pages/network-devices/NetworkDeviceDetail";
-import WorkstationList from "./pages/workstations/WorkstationList";
-import WorkstationDetail from "./pages/workstations/WorkstationDetail";
+import TerminalAssetList from "./pages/terminal-assets/TerminalAssetList";
+import TerminalAssetDetail from "./pages/terminal-assets/TerminalAssetDetail";
 
 import PartList from "./pages/inventory/PartList";
 import PartDetail from "./pages/inventory/PartDetail";
@@ -35,10 +33,8 @@ export const routers = [
       { path: "dashboard", name: "dashboard", element: <Dashboard /> },
       { path: "servers", name: "servers", element: <ServerList /> },
       { path: "servers/:id", name: "server-detail", element: <ServerDetail /> },
-      { path: "network-devices", name: "network-devices", element: <NetworkDeviceList /> },
-      { path: "network-devices/:id", name: "network-device-detail", element: <NetworkDeviceDetail /> },
-      { path: "workstations", name: "workstations", element: <WorkstationList /> },
-      { path: "workstations/:id", name: "workstation-detail", element: <WorkstationDetail /> },
+      { path: "terminal-assets", name: "terminal-assets", element: <TerminalAssetList /> },
+      { path: "terminal-assets/:id", name: "terminal-asset-detail", element: <TerminalAssetDetail /> },
 
       { path: "inventory", element: <Navigate to="/inventory/parts" replace /> },
       { path: "inventory/parts", name: "parts", element: <PartList /> },

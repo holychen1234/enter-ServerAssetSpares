@@ -30,42 +30,34 @@ import {
 import {
   parseImportFile,
   importRowToPayload,
-  parseNetworkDeviceImportFile,
-  networkDeviceImportRowToPayload,
-  parseWorkstationImportFile,
-  workstationImportRowToPayload,
   generateTemplate,
-  generateNetworkDeviceTemplate,
-  generateWorkstationTemplate,
+  parseTerminalAssetImportFile,
+  terminalAssetImportRowToPayload,
+  generateTerminalAssetTemplate,
   downloadBlob,
   type ImportResult,
 } from "@/lib/import-export";
-import { createServer, createNetworkDevice, createWorkstation } from "@/lib/api/cmdb";
-
-type AssetType = "server" | "networkDevice" | "workstation";
+import { createServer, createTerminalAsset } from "@/lib/api/cmdb";
 
 interface Props {
   open: boolean;
   onClose: () => void;
-  onImported: () => void;
-  type?: AssetType;
-  /** 别名，兼容旧调用方 */
-  entityType?: AssetType;
+  onImported: () => void; // callback to refresh server list
+  entityType?: "server" | "terminal-asset";
 }
 
-export function ImportDialog({ open, onClose, onImported, type, entityType }: Props) {
-  const resolvedType: AssetType = entityType ?? type ?? "server";
+export function ImportDialog({ open, onClose, onImported, entityType = "server" }: Props) {
+  const isServer = entityType === "server";
+  const title = isServer ? "批量导入主机" : "批量导入终端资产";
+  const description = isServer
+    ? "支持 Excel (.xlsx) 和 CSV 文件。请先下载模板，按格式填写后上传。"
+    : "支持 Excel (.xlsx) 和 CSV 文件。请先下载终端资产模板，按格式填写后上传。";
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<"upload" | "preview" | "importing" | "done">("upload");
   const [result, setResult] = useState<ImportResult | null>(null);
   const [importingProgress, setImportingProgress] = useState({ done: 0, total: 0 });
   const [importErrors, setImportErrors] = useState<string[]>([]);
   const [dragOver, setDragOver] = useState(false);
-
-  const isNdev = resolvedType === "networkDevice";
-  const isWks = resolvedType === "workstation";
-  const title = isNdev ? "网络设备" : isWks ? "终端PC" : "服务器";
-  const labelName = isNdev ? "设备名" : isWks ? "计算机名" : "服务器名";
 
   const reset = () => {
     setStep("upload");
@@ -81,8 +73,7 @@ export function ImportDialog({ open, onClose, onImported, type, entityType }: Pr
 
   const handleFile = useCallback(async (file: File) => {
     try {
-      const parseFn = isNdev ? parseNetworkDeviceImportFile : isWks ? parseWorkstationImportFile : parseImportFile;
-      const r = await parseFn(file);
+      const r = await (isServer ? parseImportFile(file) : parseTerminalAssetImportFile(file));
       if (r.rows.length === 0) {
         toast({ title: "文件为空", description: "未检测到有效数据行" });
         return;
@@ -98,11 +89,12 @@ export function ImportDialog({ open, onClose, onImported, type, entityType }: Pr
         variant: "destructive",
       });
     }
-  }, [isNdev, isWks]);
+  }, []);
 
   const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) handleFile(file);
+    // Reset input value so the same file can be re-selected
     e.target.value = "";
   };
 
@@ -112,6 +104,7 @@ export function ImportDialog({ open, onClose, onImported, type, entityType }: Pr
   };
 
   const handleDragLeave = (e: React.DragEvent) => {
+    // Only set false when leaving the drop zone, not child elements
     if (!e.currentTarget.contains(e.relatedTarget as Node)) {
       setDragOver(false);
     }
@@ -135,15 +128,17 @@ export function ImportDialog({ open, onClose, onImported, type, entityType }: Pr
     setImportingProgress({ done: 0, total: valid.length });
     setImportErrors([]);
 
-    const toPayload = isNdev ? networkDeviceImportRowToPayload : isWks ? workstationImportRowToPayload : importRowToPayload;
-    const createFn = isNdev ? createNetworkDevice : isWks ? createWorkstation : createServer;
-
     let ok = 0;
     const errs: string[] = [];
     for (let i = 0; i < valid.length; i++) {
       try {
-        const payload = toPayload(valid[i].data);
-        await createFn(payload as any);
+        if (isServer) {
+          const payload = importRowToPayload(valid[i].data);
+          await createServer(payload);
+        } else {
+          const payload = terminalAssetImportRowToPayload(valid[i].data);
+          await createTerminalAsset(payload);
+        }
         ok++;
       } catch (err) {
         const msg = err instanceof Error ? err.message : "未知错误";
@@ -155,7 +150,7 @@ export function ImportDialog({ open, onClose, onImported, type, entityType }: Pr
     setImportErrors(errs);
     setStep("done");
     if (ok > 0) {
-      toast({ title: `成功导入 ${ok} 条${title}` });
+      toast({ title: `成功导入 ${ok} 台主机` });
       onImported();
     }
     if (errs.length > 0) {
@@ -164,22 +159,21 @@ export function ImportDialog({ open, onClose, onImported, type, entityType }: Pr
   };
 
   const downloadTemplate = (format: "csv" | "xlsx") => {
-    const genFn = isNdev ? generateNetworkDeviceTemplate : isWks ? generateWorkstationTemplate : generateTemplate;
-    const blob = genFn(format);
+    const blob = isServer ? generateTemplate(format) : generateTerminalAssetTemplate(format);
     const ext = format === "csv" ? "csv" : "xlsx";
-    downloadBlob(blob, `${title}导入模板.${ext}`);
+    const filename = isServer ? `主机资产导入模板.${ext}` : `终端资产导入模板.${ext}`;
+    downloadBlob(blob, filename);
   };
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && handleClose()}>
       <DialogContent className="sm:max-w-[700px] max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>批量导入{title}</DialogTitle>
-          <DialogDescription>
-            支持 Excel (.xlsx) 和 CSV 文件。请先下载模板，按格式填写后上传。
-          </DialogDescription>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
+        {/* Step: upload */}
         {step === "upload" && (
           <div className="space-y-4">
             <div className="flex gap-2">
@@ -199,9 +193,6 @@ export function ImportDialog({ open, onClose, onImported, type, entityType }: Pr
                   ? "border-primary bg-primary/5"
                   : "border-border hover:border-muted-foreground/50"
               }`}
-              onDragOver={handleDragOver}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
             >
               <Upload className="mx-auto h-10 w-10 text-muted-foreground mb-3" />
               <p className="text-sm text-muted-foreground">
@@ -216,11 +207,15 @@ export function ImportDialog({ open, onClose, onImported, type, entityType }: Pr
                 accept=".xlsx,.csv"
                 className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
                 onChange={handleFileInput}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                onDrop={handleDrop}
               />
             </div>
           </div>
         )}
 
+        {/* Step: preview */}
         {step === "preview" && result && (
           <div className="space-y-4">
             <div className="flex items-center gap-4 text-sm">
@@ -244,7 +239,7 @@ export function ImportDialog({ open, onClose, onImported, type, entityType }: Pr
                 <TableHeader>
                   <TableRow>
                     <TableHead className="w-[60px]">行号</TableHead>
-                    <TableHead>{labelName}</TableHead>
+                    <TableHead>主机名</TableHead>
                     <TableHead>SN</TableHead>
                     <TableHead>状态</TableHead>
                     <TableHead className="w-[200px]">校验</TableHead>
@@ -303,6 +298,7 @@ export function ImportDialog({ open, onClose, onImported, type, entityType }: Pr
           </div>
         )}
 
+        {/* Step: importing */}
         {step === "importing" && (
           <div className="space-y-4 py-8">
             <div className="flex items-center justify-center gap-2 text-muted-foreground">
@@ -322,6 +318,7 @@ export function ImportDialog({ open, onClose, onImported, type, entityType }: Pr
           </div>
         )}
 
+        {/* Step: done */}
         {step === "done" && (
           <div className="space-y-4">
             <div className="flex items-center gap-2 text-green-600">

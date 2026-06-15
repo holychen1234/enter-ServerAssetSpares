@@ -4,12 +4,11 @@
 import type {
   AppUser,
   BmcStatus,
-  NetworkDevice,
   Part,
   PartItem,
   Server,
   StockMovement,
-  Workstation,
+  TerminalAsset,
 } from "@/types/cmdb";
 import { INTERNAL_API_BASE } from "./mode";
 
@@ -124,75 +123,38 @@ export async function refreshBmcStatus(serverId: string): Promise<BmcStatus> {
   return api<BmcStatus>(`/servers/${serverId}/bmc/refresh`, { method: "POST" });
 }
 
-// ---------- Network Devices ----------
-export async function listNetworkDevices(): Promise<NetworkDevice[]> {
-  return api<NetworkDevice[]>("/network-devices");
+// ---------- Terminal Assets ----------
+export async function listTerminalAssets(): Promise<TerminalAsset[]> {
+  return api<TerminalAsset[]>("/terminal-assets");
 }
 
-export async function getNetworkDevice(id: string): Promise<NetworkDevice | undefined> {
+export async function getTerminalAsset(id: string): Promise<TerminalAsset | undefined> {
   try {
-    return await api<NetworkDevice>(`/network-devices/${id}`);
+    return await api<TerminalAsset>(`/terminal-assets/${id}`);
   } catch {
     return undefined;
   }
 }
 
-export async function createNetworkDevice(
-  data: Omit<NetworkDevice, "id" | "createdAt" | "updatedAt">,
-): Promise<NetworkDevice> {
-  return api<NetworkDevice>("/network-devices", { method: "POST", body: data });
+export async function createTerminalAsset(
+  data: Omit<TerminalAsset, "id" | "createdAt" | "updatedAt">,
+): Promise<TerminalAsset> {
+  return api<TerminalAsset>("/terminal-assets", { method: "POST", body: data });
 }
 
-export async function updateNetworkDevice(
+export async function updateTerminalAsset(
   id: string,
-  patch: Partial<NetworkDevice>,
-): Promise<NetworkDevice> {
-  return api<NetworkDevice>(`/network-devices/${id}`, { method: "PATCH", body: patch });
+  patch: Partial<TerminalAsset>,
+): Promise<TerminalAsset> {
+  return api<TerminalAsset>(`/terminal-assets/${id}`, { method: "PATCH", body: patch });
 }
 
-export async function deleteNetworkDevice(id: string): Promise<void> {
-  await api<void>(`/network-devices/${id}`, { method: "DELETE" });
+export async function deleteTerminalAsset(id: string): Promise<void> {
+  await api<void>(`/terminal-assets/${id}`, { method: "DELETE" });
 }
 
-export async function batchDeleteNetworkDevices(ids: string[]): Promise<void> {
-  await api<void>("/network-devices/batch-delete", {
-    method: "POST",
-    body: { ids },
-  });
-}
-
-// ---------- Workstations ----------
-export async function listWorkstations(): Promise<Workstation[]> {
-  return api<Workstation[]>("/workstations");
-}
-
-export async function getWorkstation(id: string): Promise<Workstation | undefined> {
-  try {
-    return await api<Workstation>(`/workstations/${id}`);
-  } catch {
-    return undefined;
-  }
-}
-
-export async function createWorkstation(
-  data: Omit<Workstation, "id" | "createdAt" | "updatedAt">,
-): Promise<Workstation> {
-  return api<Workstation>("/workstations", { method: "POST", body: data });
-}
-
-export async function updateWorkstation(
-  id: string,
-  patch: Partial<Workstation>,
-): Promise<Workstation> {
-  return api<Workstation>(`/workstations/${id}`, { method: "PATCH", body: patch });
-}
-
-export async function deleteWorkstation(id: string): Promise<void> {
-  await api<void>(`/workstations/${id}`, { method: "DELETE" });
-}
-
-export async function batchDeleteWorkstations(ids: string[]): Promise<void> {
-  await api<void>("/workstations/batch-delete", {
+export async function batchDeleteTerminalAssets(ids: string[]): Promise<void> {
+  await api<void>("/terminal-assets/batch-delete", {
     method: "POST",
     body: { ids },
   });

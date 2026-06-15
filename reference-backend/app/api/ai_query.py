@@ -8,14 +8,14 @@ import json
 import os
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
-from app.api.serializers import network_device_to_dict, part_to_dict, server_to_dict, workstation_to_dict
+from app.api.serializers import part_to_dict, server_to_dict, terminal_asset_to_dict
 from app.db.base import get_db
-from app.db.models import NetworkDevice, Part, Server, Workstation
+from app.db.models import Part, Server, TerminalAsset
 from app.services import bmc as bmc_svc
 from app.settings import settings
 
@@ -37,27 +37,23 @@ def verify_api_key(
 
 # 厂商中英文映射，支持用户用中文名查询
 MANUFACTURER_ALIASES: dict[str, str] = {
-    # 服务器厂商
-    "戴尔": "Dell", "dell": "Dell",
-    "惠普": "HPE", "hpe": "HPE", "h3c": "HPE",
-    "联想": "Lenovo", "lenovo": "Lenovo",
-    "浪潮": "Inspur", "inspur": "Inspur",
-    "超微": "Supermicro", "supermicro": "Supermicro",
-    "华为": "Huawei", "huawei": "Huawei",
-    "超聚变": "XFusion", "xfusion": "XFusion",
-    # 网络设备厂商
-    "思科": "Cisco", "cisco": "Cisco",
-    "华三": "H3C",
-    "arista": "Arista",
-    "瞻博": "Juniper", "juniper": "Juniper",
-    "锐捷": "Ruijie", "ruijie": "Ruijie",
-    # 终端PC厂商
-    "hp": "HP",
-    "苹果": "Apple", "apple": "Apple",
-    "华硕": "ASUS", "asus": "ASUS",
-    "宏碁": "Acer", "acer": "Acer",
-    "微软": "Microsoft", "microsoft": "Microsoft",
-    "其他": "Other", "other": "Other",
+    "戴尔": "Dell",
+    "dell": "Dell",
+    "惠普": "HPE",
+    "hpe": "HPE",
+    "h3c": "HPE",
+    "联想": "Lenovo",
+    "lenovo": "Lenovo",
+    "浪潮": "Inspur",
+    "inspur": "Inspur",
+    "超微": "Supermicro",
+    "supermicro": "Supermicro",
+    "华为": "Huawei",
+    "huawei": "Huawei",
+    "超聚变": "XFusion",
+    "xfusion": "XFusion",
+    "其他": "Other",
+    "other": "Other",
 }
 
 def _normalize_manufacturer(raw: str) -> str | None:
@@ -103,35 +99,18 @@ def _part_brief(p) -> dict:
     }
 
 
-def _network_device_brief(d) -> dict:
-    """Compact network device view for list results."""
+def _terminal_asset_brief(ta) -> dict:
+    """Compact terminal asset view for list results."""
     return {
-        "hostname": d.hostname,
-        "sn": d.sn,
-        "assetTag": d.asset_tag,
-        "deviceType": d.device_type,
-        "manufacturer": d.manufacturer,
-        "model": d.model,
-        "mgmtIp": d.mgmt_ip,
-        "bizIp": d.biz_ip or "",
-        "status": d.status,
-        "idc": d.idc,
-    }
-
-
-def _workstation_brief(w) -> dict:
-    """Compact workstation view for list results."""
-    return {
-        "hostname": w.hostname,
-        "sn": w.sn,
-        "assetTag": w.asset_tag,
-        "manufacturer": w.manufacturer,
-        "model": w.model,
-        "os": w.os,
-        "bizIp": w.biz_ip or "",
-        "userName": w.user_name or "",
-        "department": w.department or "",
-        "status": w.status,
+        "hostname": ta.hostname,
+        "sn": ta.sn,
+        "assetTag": ta.asset_tag,
+        "manufacturer": ta.manufacturer,
+        "model": ta.model,
+        "os": ta.os,
+        "bizIp": ta.biz_ip or "",
+        "userName": ta.user_name or "",
+        "status": ta.status,
     }
 
 
@@ -399,13 +378,17 @@ async def get_server_bmc_status(
             }
             for f in (status.get("fans") or [])
         ],
-        # memory (total + per-DIMM detail)
+        # memory (total + per-DIMM detail + slot utilization)
         "memoryTotalGiB": (
             status.get("memorySummary", {}).get("totalGiB")
             if status.get("memorySummary")
             else None
         ),
         "memoryModuleCount": len(status.get("memoryModules") or []),
+        "memorySlots": status.get("memorySlots") or {
+            "total": len(status.get("memoryModules") or []),
+            "populated": len(status.get("memoryModules") or []),
+        },
         "memoryModules": [
             {
                 "slot": m["slot"],
@@ -417,8 +400,12 @@ async def get_server_bmc_status(
             }
             for m in (status.get("memoryModules") or [])
         ],
-        # disks
+        # disks (with slot utilization and form factor)
         "diskCount": len(status.get("drives") or []),
+        "diskSlots": status.get("diskSlots") or {
+            "total": len(status.get("drives") or []),
+            "populated": len(status.get("drives") or []),
+        },
         "disks": [
             {
                 "name": d.get("name"),
@@ -426,6 +413,7 @@ async def get_server_bmc_status(
                 "sn": d.get("sn"),
                 "capacityGB": d.get("capacityGB"),
                 "mediaType": d.get("mediaType"),
+                "formFactor": d.get("formFactor", "unknown"),
                 "status": d.get("status"),
             }
             for d in (status.get("drives") or [])
@@ -447,151 +435,86 @@ async def get_server_bmc_status(
     }
 
 
-@router.get("/search-network-devices")
-def search_network_devices(
-    keyword: str = Query(default="", description="任意关键词，匹配设备名/SN/资产编号/管理IP/型号/厂商"),
-    device_type: str = Query(default="", description="设备类型: switch, router, firewall, load_balancer"),
-    manufacturer: str = Query(default="", description="厂商过滤: Cisco, Huawei, H3C, Arista, Juniper, Ruijie"),
-    status: str = Query(default="", description="状态: online, offline, maintenance, retired"),
-    idc: str = Query(default="", description="机房过滤"),
-    limit: int = Query(default=20, ge=1, le=100),
-    db: Session = Depends(get_db),
-    _: None = Depends(verify_api_key),
-):
-    """搜索网络设备。Aily use this when user asks about switches, routers,
-    firewalls or load balancers."""
-    q = db.query(NetworkDevice)
-
-    if keyword:
-        kw = f"%{keyword}%"
-        q = q.filter(
-            NetworkDevice.hostname.ilike(kw)
-            | NetworkDevice.sn.ilike(kw)
-            | NetworkDevice.asset_tag.ilike(kw)
-            | NetworkDevice.mgmt_ip.ilike(kw)
-            | NetworkDevice.model.ilike(kw)
-            | NetworkDevice.manufacturer.ilike(kw)
-            | NetworkDevice.idc.ilike(kw)
-        )
-    if device_type:
-        q = q.filter(NetworkDevice.device_type == device_type)
-    if manufacturer:
-        mfr_norm = _normalize_manufacturer(manufacturer)
-        if mfr_norm:
-            q = q.filter(NetworkDevice.manufacturer == mfr_norm)
-        else:
-            q = q.filter(NetworkDevice.manufacturer == manufacturer)
-    if status:
-        q = q.filter(NetworkDevice.status == status)
-    if idc:
-        q = q.filter(NetworkDevice.idc == idc)
-
-    rows = q.order_by(NetworkDevice.hostname).limit(limit).all()
-    return {
-        "count": len(rows),
-        "items": [_network_device_brief(d) for d in rows],
-    }
 
 
-@router.get("/get-network-device-detail")
-def get_network_device_detail(
-    identifier: str = Query(..., description="设备名、SN序列号、资产编号或管理IP地址"),
-    db: Session = Depends(get_db),
-    _: None = Depends(verify_api_key),
-):
-    """获取单台网络设备完整信息。Aily use this when user asks for detailed
-    info about a specific switch, router, firewall, or load balancer.
-    identifier can be hostname, SN, asset tag, or management IP."""
-    d = (
-        db.query(NetworkDevice)
-        .filter(
-            (NetworkDevice.hostname == identifier)
-            | (NetworkDevice.sn == identifier)
-            | (NetworkDevice.asset_tag == identifier)
-            | (NetworkDevice.mgmt_ip == identifier)
-        )
-        .first()
-    )
-    if not d:
-        return {"found": False, "message": f"未找到网络设备: {identifier}"}
-    return {"found": True, **network_device_to_dict(d)}
-
-
-@router.get("/search-workstations")
-def search_workstations(
+@router.get("/search-terminal-assets")
+def search_terminal_assets(
     keyword: str = Query(default="", description="任意关键词，匹配计算机名/SN/资产编号/IP/型号/使用人/部门"),
     manufacturer: str = Query(default="", description="厂商过滤: Dell, HP, Lenovo, Apple, Huawei, ASUS, Acer, Microsoft"),
     status: str = Query(default="", description="状态: online, offline, maintenance, retired"),
     os: str = Query(default="", description="操作系统过滤"),
-    department: str = Query(default="", description="部门过滤"),
     limit: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
     _: None = Depends(verify_api_key),
 ):
-    """搜索终端PC。Aily use this when user asks about workstations,
-    desktops, laptops, or employee computers."""
-    q = db.query(Workstation)
+    """搜索终端资产。Aily/Dify use this when user asks about terminal
+    assets, desktops, laptops, or employee computers."""
+    q = db.query(TerminalAsset)
 
     if keyword:
         kw = f"%{keyword}%"
         q = q.filter(
-            Workstation.hostname.ilike(kw)
-            | Workstation.sn.ilike(kw)
-            | Workstation.asset_tag.ilike(kw)
-            | Workstation.biz_ip.ilike(kw)
-            | Workstation.model.ilike(kw)
-            | Workstation.user_name.ilike(kw)
-            | Workstation.department.ilike(kw)
+            TerminalAsset.hostname.ilike(kw)
+            | TerminalAsset.sn.ilike(kw)
+            | TerminalAsset.asset_tag.ilike(kw)
+            | TerminalAsset.biz_ip.ilike(kw)
+            | TerminalAsset.model.ilike(kw)
+            | TerminalAsset.user_name.ilike(kw)
         )
     if manufacturer:
         mfr_norm = _normalize_manufacturer(manufacturer)
         if mfr_norm:
-            q = q.filter(Workstation.manufacturer == mfr_norm)
+            q = q.filter(TerminalAsset.manufacturer == mfr_norm)
         else:
-            q = q.filter(Workstation.manufacturer == manufacturer)
+            q = q.filter(TerminalAsset.manufacturer == manufacturer)
     if status:
-        q = q.filter(Workstation.status == status)
+        q = q.filter(TerminalAsset.status == status)
     if os:
-        q = q.filter(Workstation.os == os)
-    if department:
-        q = q.filter(Workstation.department == department)
+        q = q.filter(TerminalAsset.os == os)
 
-    rows = q.order_by(Workstation.hostname).limit(limit).all()
+    rows = q.order_by(TerminalAsset.hostname).limit(limit).all()
     return {
         "count": len(rows),
-        "items": [_workstation_brief(w) for w in rows],
+        "items": [_terminal_asset_brief(w) for w in rows],
     }
 
 
-@router.get("/get-workstation-detail")
-def get_workstation_detail(
+@router.get("/get-terminal-asset-detail")
+def get_terminal_asset_detail(
     identifier: str = Query(..., description="计算机名、SN序列号、资产编号或IP地址"),
     db: Session = Depends(get_db),
     _: None = Depends(verify_api_key),
 ):
-    """获取单台终端PC完整信息。Aily use this when user asks for detailed
-    info about a specific workstation, desktop, or laptop.
+    """获取单台终端资产完整信息。Aily/Dify use this when user asks
+    for detailed info about a specific terminal asset.
     identifier can be hostname, SN, asset tag, or IP address."""
-    w = (
-        db.query(Workstation)
+    ta = (
+        db.query(TerminalAsset)
         .filter(
-            (Workstation.hostname == identifier)
-            | (Workstation.sn == identifier)
-            | (Workstation.asset_tag == identifier)
-            | (Workstation.biz_ip == identifier)
+            (TerminalAsset.hostname == identifier)
+            | (TerminalAsset.sn == identifier)
+            | (TerminalAsset.asset_tag == identifier)
+            | (TerminalAsset.biz_ip == identifier)
         )
         .first()
     )
-    if not w:
-        return {"found": False, "message": f"未找到终端PC: {identifier}"}
-    return {"found": True, **workstation_to_dict(w)}
+    if not ta:
+        return {"found": False, "message": f"未找到终端资产: {identifier}"}
+    return {"found": True, **terminal_asset_to_dict(ta)}
 
 
 # ── OpenAPI schema (no auth — Dify needs to fetch it for import) ─
 
 @router.get("/openapi.json", include_in_schema=False)
-def openapi_schema():
-    """Serve the OpenAPI 3.0 spec for Dify tool import."""
-    schema_path = os.path.join(os.path.dirname(__file__), "ai_openapi.json")
-    with open(schema_path, "r", encoding="utf-8") as f:
-        return JSONResponse(content=json.load(f))
+def openapi_schema(request: Request):
+    """Serve the OpenAPI 3.0 spec for Dify tool import.
+    Generated dynamically from the app's OpenAPI schema, filtering
+    to only AI-related paths so Dify can import the tools."""
+    schema = request.app.openapi()
+    # Keep only AI-prefixed paths (tools that Dify / Aily can call)
+    ai_paths = {p: v for p, v in schema.get("paths", {}).items() if p.startswith("/api/ai/")}
+    # Update servers URL
+    base_url = str(request.base_url).rstrip("/")
+    schema["servers"] = [{"url": f"{base_url}/api/ai", "description": "AI tools"}]
+    schema["paths"] = ai_paths
+    return JSONResponse(content=schema)

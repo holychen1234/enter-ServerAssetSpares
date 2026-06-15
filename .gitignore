@@ -25,7 +25,20 @@ dist-ssr
 code_template.zip
 
 # 环境变量（含密钥，禁止提交）
+.env
 reference-backend/.env
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Project metadata
+.understand-anything/
+.enter/
+
+# SSH keys
+*.pem
+*.key
 
 # 数据库备份
 backups/
@@ -34,3 +47,7 @@ backups/
 *.zip
 *.tar
 *.tar.gz
+
+# 部署/测试脚本（本地专用）
+verify-api.sh
+DEPLOY.md

@@ -1,4 +1,4 @@
-# CMDB 飞书 Aily 工作流配置完整教程
+# CMDB 飞书 Aily / Dify 工作流配置完整教程
 
 ## 工作流架构
 
@@ -14,19 +14,21 @@
 
 - 域名已配置公网映射，API 可访问：`https://dcmapi.pupumall.net/api/ai/...`
 - `.env` 中 `AI_API_KEY=c5d15c906d4a9439415fb65d3de2a27c`
-- 飞书已开通 Aily 权限
-- **后端已更新到最新版本**（包含 `get_server_bmc_status` 端点和 asset_tag 查询支持）
+- 飞书已开通 Aily 权限（或已部署 Dify）
+- **后端已更新到最新版本**（包含终端资产 AI 查询接口）
 
 ---
 
-## 工具总览（6 个）
+## 工具总览（10 个）
 
 | 工具名 | 用途 | 关键参数 |
 |---|---|---|
 | search_servers | 搜索服务器 | keyword, manufacturer, status, idc, hostname, sn, ip |
 | get_server_detail | 主机详情（支持资产编号+IP） | identifier（主机名/SN/资产编号/IP） |
 | search_network_devices | 搜索网络设备 | keyword, device_type, manufacturer, status, idc, limit |
-| search_workstations | 搜索终端PC | keyword, manufacturer, status, os, department, limit |
+| search_workstations | 搜索终端PC（办公电脑） | keyword, manufacturer, status, os, department, limit |
+| **search_terminal_assets** | **搜索终端资产** | **keyword, manufacturer, status, os, department, limit** |
+| **get_terminal_asset_detail** | **终端资产详情** | **identifier（计算机名/SN/资产编号/IP）** |
 | search_parts | 搜索备件库存 | keyword, category, spec, status |
 | get_server_stats | 资产统计 | group_by（status/idc/manufacturer） |
 | get_server_disks | 主机硬盘列表 | identifier（主机名/SN/资产编号/IP） |
@@ -101,6 +103,12 @@
 8. search_workstations — 搜索终端PC（办公电脑/笔记本）
    参数: keyword(模糊搜索,匹配计算机名/SN/资产编号/IP/型号/使用人/部门), manufacturer(厂商:Dell/HP/Lenovo/Apple/Huawei/ASUS/Acer/Microsoft/Other), status(online/offline/maintenance/retired), os(Windows 10/Windows 11/macOS/Ubuntu/CentOS/Other), department(部门), limit(整数,默认20)
 
+9. search_terminal_assets — 搜索终端资产（涵盖办公电脑、笔记本等终端设备）
+   参数: keyword(模糊搜索,匹配计算机名/SN/资产编号/IP/型号/使用人/部门), manufacturer(厂商:Dell/HP/Lenovo/Apple/Huawei/ASUS/Acer/Microsoft/Other), status(online/offline/maintenance/retired), os(Windows 10/Windows 11/macOS/Ubuntu/CentOS/Other), department(部门), limit(整数,默认20)
+
+10. get_terminal_asset_detail — 获取单台终端资产完整信息
+    参数: identifier(必填,计算机名、SN序列号、资产编号或IP地址)
+
 ## 路由规则
 
 - 用户问某个品牌的设备有多少台/有哪些 → search_servers（用 manufacturer 参数）
@@ -114,6 +122,11 @@
 - 用户模糊搜索机器（"有几台Dell"、"在线的机器"、"IDC-A有"） → search_servers
 - 用户问备件/库存/配件 → search_parts
 - 用户问统计/总数/分布/概况 → get_server_stats
+- 用户问交换机/路由器/防火墙/负载均衡/网络设备 → search_network_devices
+- 用户问办公电脑/笔记本/终端/PC/台式机 → search_workstations
+- 用户问某部门有多少台电脑/XX的电脑配置 → search_workstations（用 department 或 keyword 参数）
+- **用户问终端资产/终端设备/办公设备（非服务器场景）** → **search_terminal_assets**
+- **用户查某台终端资产的具体信息/配置/使用人** → **get_terminal_asset_detail**
 
 ## 厂商名称对照表
 
@@ -141,6 +154,9 @@
 - 用户问交换机/路由器/防火墙/负载均衡/网络设备 → search_network_devices
 - 用户问办公电脑/笔记本/终端/PC/台式机 → search_workstations
 - 用户问某部门有多少台电脑/XX的电脑配置 → search_workstations（用 department 或 keyword 参数）
+- **用户问"终端资产"、"办公设备"等非服务器类终端** → **search_terminal_assets**
+- **用户查某台终端资产详细配置信息、使用人、位置** → **get_terminal_asset_detail**
+- **search_terminal_assets 与 search_workstations 功能类似，后者偏重传统 PC 命名，根据语境选择即可**
 
 ## 示例
 
@@ -230,6 +246,12 @@
 
 用户: "公司有几台Mac"
 输出: {"tool": "search_workstations", "params": {"manufacturer": "Apple"}}
+
+用户: "查一下终端资产 TS-001"
+输出: {"tool": "get_terminal_asset_detail", "params": {"identifier": "TS-001"}}
+
+用户: "市场部有几台终端资产"
+输出: {"tool": "search_terminal_assets", "params": {"department": "市场部"}}
 ```
 
 ### User 提示词
@@ -279,6 +301,10 @@ def main(llm_output: str) -> dict:
         "get_server_stats": "/get-server-stats",
         "get_server_disks": "/get-server-disks",
         "get_server_bmc_status": "/get-server-bmc-status",
+        "search_network_devices": "/search-network-devices",
+        "search_workstations": "/search-workstations",
+        "search_terminal_assets": "/search-terminal-assets",
+        "get_terminal_asset_detail": "/get-terminal-asset-detail",
     }
 
     endpoint = endpoints.get(tool, "/search-servers")
@@ -406,6 +432,18 @@ def main(llm_output: str) -> dict:
 ### 终端PC列表格式（search_workstations）
 每条：计算机名 - 厂商/型号 - OS - 使用人/部门 - 状态 - IP
 先给总数，再列前10条
+
+### 终端资产列表格式（search_terminal_assets）
+每条：计算机名 - 厂商/型号 - OS - 使用人/部门 - 状态 - IP
+先给总数，再列前10条
+
+### 终端资产详情格式（get_terminal_asset_detail）
+根据用户提问的内容选择性展示：
+- 问"配置" → 厂商/型号/CPU/内存/硬盘
+- 问"使用人/谁在用" → 使用人/部门/位置（办公楼/楼层/工位）
+- 问"基本信息" → 计算机名/SN/资产编号/厂商/型号/OS/IP
+- 问"网络" → IP地址/MAC地址
+- 问"生命周期" → 采购日期/保修截止/状态
 ```
 
 ### User 提示词
@@ -435,6 +473,18 @@ def main(llm_output: str) -> dict:
 4. 配置"接收消息"事件，填入 Webhook URL
 5. 权限申请：`im:message:read` + `im:message:send`
 6. 提交审核，通过后发布应用
+
+---
+
+## Dify 接入（替代方案）
+
+如果使用 Dify 而非飞书 Aily，可以直接导入 OpenAPI 规范：
+
+1. 打开 Dify → 工具 → 自定义工具 → **导入 OpenAPI**
+2. URL 填入：`https://dcmapi.pupumall.net/api/ai/openapi.json`
+3. 系统自动解析所有 AI 工具（包括终端资产查询）
+4. 在 workflow 中直接拖拽使用即可
+5. 认证方式选择 **Header** → `X-API-Key` → 填写你的 API Key
 
 ---
 
@@ -473,6 +523,10 @@ def main(llm_output: str) -> dict:
 | Windows 11 的终端有哪些 | search_workstations(os=Windows 11) |
 | 张三的电脑配置 | search_workstations(keyword=张三) |
 | 公司有几台Mac | search_workstations(manufacturer=Apple) |
+| **查一下终端资产 TS-001 的配置** | **get_terminal_asset_detail(identifier=TS-001)** |
+| **市场部有多少台终端资产** | **search_terminal_assets(department=市场部)** |
+| **Windows 10 的终端资产有哪些** | **search_terminal_assets(os=Windows 10)** |
+| **戴尔的终端资产** | **search_terminal_assets(manufacturer=戴尔)** |
 
 ---
 
@@ -488,6 +542,7 @@ def main(llm_output: str) -> dict:
 | 资产编号查不到 | 后端未支持 asset_tag | 已修复，更新后端到最新版本 |
 | BMC 状态返回 501 | AI_API_KEY 未配置 | 检查后端 .env 中 AI_API_KEY 是否正确设置 |
 | 返回数据是 simulated | BMC 不可达 | 正常降级行为，检查目标主机的 BMC IP 和网络连通性 |
+| 终端资产接口返回 404 | 后端未部署或数据库未建表 | 执行 `reference-backend/init-db/05_terminal_assets.sql` 建表 |
 
 ---
 
@@ -497,3 +552,4 @@ def main(llm_output: str) -> dict:
 |---|---|
 | 2026-05-27 | 新增 `get_server_bmc_status` 端点（CPU温度/风扇/磁盘/电源/告警）；所有 identifier 端点支持 asset_tag（资产编号）查询 |
 | 2026-05-28 | 新增 `search_network_devices` 和 `search_workstations` 端点；扩展 CMDB 资产类型覆盖网络设备和终端PC |
+| 2026-06-04 | 新增 `search_terminal_assets` 和 `get_terminal_asset_detail` 端点；新增 Dify OpenAPI 导入说明 |
