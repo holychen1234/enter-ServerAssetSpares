@@ -14,7 +14,7 @@ WORKDIR /app
 #    && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
-RUN pip3 install -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
+RUN pip3 install -r requirements.txt
 
 COPY app ./app
 COPY alembic.ini ./
