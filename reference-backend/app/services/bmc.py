@@ -584,20 +584,51 @@ def _pick_temp(temps: list[dict], pattern: str) -> float:
     return 0.0
 
 
+def _dedup_drives(*lists: list[dict]) -> list[dict]:
+    """Merge drive lists, deduplicating by (name, sn) so the same physical
+    drive found via multiple Redfish paths is only counted once."""
+    seen: set[tuple[str, str | None]] = set()
+    merged: list[dict] = []
+    for lst in lists:
+        for d in lst:
+            key = (d.get("name", ""), d.get("sn"))
+            if key not in seen:
+                seen.add(key)
+                merged.append(d)
+    return merged
+
+
 async def _redfish_storage_drives(
     client: httpx.AsyncClient, base: str, system_path: str
 ) -> list[dict]:
-    """Discover drives under ``/Systems/X/Storage``, with fallback to
-    ``SimpleStorage`` for older BMCs (Dell iDRAC 8 and earlier), and
-    ``/Chassis/X/Drives`` for XFusion / H3C / other vendors that expose
-    drives at the chassis level instead of under Systems/Storage."""
-    drives: list[dict] = []
+    """Discover drives with a primary path + supplement strategy.
+
+    *Path 1* (Storage modern) is the canonical source and runs first.
+    When it succeeds we supplement with *Path 3* (Chassis/Drives) because
+    some vendors (Inspur / H3C) expose rear-backplane system drives ONLY
+    at the chassis level.  We merge both lists with deduplication so
+    drives that appear in both paths aren't double-counted.
+
+    Fallback chain (only when Path 1 returns nothing):
+    Path 1 → Path 2 (SimpleStorage) → Path 3 (Chassis/Drives) → Path 4 (Deep drill)."""
+    all_drives: list[dict] = []
     try:
         # Path 1: modern Storage schema (Dell iDRAC 9+, Supermicro X11+, etc.)
-        drives = await _redfish_storage_modern(client, base, system_path)
-        if drives:
-            logger.debug("redfish storage: got %d drives via Path 1 (Storage)", len(drives))
-            return drives
+        primary = await _redfish_storage_modern(client, base, system_path)
+        if primary:
+            logger.debug("redfish storage: got %d drives via Path 1 (Storage)", len(primary))
+            # Supplement: also try Chassis/Drives for rear-backplane /
+            # NVMe system drives that some BMCs only expose at the chassis
+            # level (e.g. Inspur rear 2.5" SATA bays, H3C NVMe riser drives).
+            supplement = await _redfish_chassis_drives(client, base)
+            if supplement:
+                logger.debug("redfish storage: got %d supplemental drives via Path 3 (Chassis/Drives)", len(supplement))
+                all_drives = _dedup_drives(primary, supplement)
+            else:
+                all_drives = primary
+            return all_drives
+
+        # ── Fallback chain (no drives from Path 1) ──
         # Path 2: SimpleStorage (older Dell iDRAC 8, HPE iLO 4)
         drives = await _redfish_storage_simple(client, base, system_path)
         if drives:
@@ -619,7 +650,7 @@ async def _redfish_storage_drives(
             logger.debug("redfish storage: got %d drives via Path 4 (Storage deep)", len(drives))
     except Exception:
         pass  # Storage isn't critical — keep returning what we have
-    return drives
+    return all_drives or drives
 
 
 async def _redfish_storage_modern(
@@ -642,6 +673,7 @@ async def _redfish_storage_modern(
     # ── Phase 1: fetch every controller in parallel to collect drive hrefs ──
     async def _controller_drive_hrefs(m) -> list[str]:
         hrefs: list[str] = []
+        seen: set[str] = set()
         ctrl_href = m.get("@odata.id")
         if not ctrl_href:
             return hrefs
@@ -653,10 +685,23 @@ async def _redfish_storage_modern(
         if r.status_code != 200:
             return hrefs
         storage: dict = r.json() or {}
+
+        # Collect from Drives array (standard Redfish)
         for dref in storage.get("Drives") or []:
             dhref = dref.get("@odata.id") if isinstance(dref, dict) else None
-            if dhref:
+            if dhref and dhref not in seen:
+                seen.add(dhref)
                 hrefs.append(dhref)
+
+        # Collect from Links.Drives (Inspur / H3C rear-backplane system
+        # drives are sometimes only referenced here and NOT in the
+        # top-level Drives array).
+        for dref in storage.get("Links", {}).get("Drives") or []:
+            dhref = dref.get("@odata.id") if isinstance(dref, dict) else None
+            if dhref and dhref not in seen:
+                seen.add(dhref)
+                hrefs.append(dhref)
+
         return hrefs
 
     controller_results = await asyncio.gather(
