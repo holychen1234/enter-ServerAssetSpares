@@ -569,6 +569,21 @@ async def _redfish_first_member(
         return None
 
 
+def _parse_drive_capacity_gb(d: dict) -> int:
+    """Extract drive capacity in GB from a Redfish Drive resource.
+
+    Tries ``CapacityBytes`` (standard) first, then falls back to the
+    deprecated ``CapacityMiB`` field still used by some Inspur / H3C
+    firmware for drives exposed through the chassis path."""
+    cap_bytes = d.get("CapacityBytes")
+    if isinstance(cap_bytes, (int, float)) and cap_bytes > 0:
+        return round(cap_bytes / (1024**3), 0)
+    cap_mib = d.get("CapacityMiB")
+    if isinstance(cap_mib, (int, float)) and cap_mib > 0:
+        return round(cap_mib / 1024, 1)
+    return 0
+
+
 def _pick_temp(temps: list[dict], pattern: str) -> float:
     rx = re.compile(pattern, re.IGNORECASE)
     for t in temps:
@@ -726,12 +741,11 @@ async def _redfish_storage_modern(
         if r.status_code != 200:
             return None
         d = r.json() or {}
-        cap = d.get("CapacityBytes") or 0
         return {
             "name": d.get("Name") or d.get("Id") or "?",
             "model": d.get("Model") or "—",
             "sn": d.get("SerialNumber") or None,
-            "capacityGB": round(cap / (1024**3), 0) if cap else 0,
+            "capacityGB": _parse_drive_capacity_gb(d),
             "mediaType": d.get("MediaType") or "—",
             "status": ((d.get("Status") or {}).get("Health")) or "OK",
         }
@@ -767,15 +781,12 @@ async def _redfish_storage_simple(
             continue
         ss: dict = r.json() or {}
         for i, dev in enumerate(ss.get("Devices") or []):
-            cap_bytes = dev.get("CapacityBytes") or 0
             drives.append(
                 {
                     "name": dev.get("Name") or f"Disk.Bay.{i+1}",
                     "model": dev.get("Model") or "—",
                     "sn": dev.get("SerialNumber") or None,
-                    "capacityGB": (
-                        round(cap_bytes / (1024**3), 0) if cap_bytes else 0
-                    ),
+                    "capacityGB": _parse_drive_capacity_gb(dev),
                     "mediaType": "—",
                     "status": ((dev.get("Status") or {}).get("Health")) or "OK",
                 }
@@ -809,23 +820,21 @@ async def _redfish_chassis_drives(
             if dr.status_code != 200:
                 continue
             d = dr.json() or {}
-            cap_bytes = d.get("CapacityBytes") or 0
+            model = d.get("Model")
+            sn = d.get("SerialNumber")
+            cap_gb = _parse_drive_capacity_gb(d)
             # Skip placeholder entries: if the drive has no Model, no SN
             # AND zero capacity, it's a stub. But if any one field is
             # present, keep it — some Inspur BMCs report valid drives
             # with zero capacity but have a model name.
-            model = d.get("Model")
-            sn = d.get("SerialNumber")
-            if not model and not sn and cap_bytes == 0:
+            if not model and not sn and cap_gb == 0:
                 continue
             drives.append(
                 {
                     "name": d.get("Name") or d.get("Id") or "?",
                     "model": model or "—",
                     "sn": sn or None,
-                    "capacityGB": (
-                        round(cap_bytes / (1024**3), 0) if cap_bytes else 0
-                    ),
+                    "capacityGB": cap_gb,
                     "mediaType": d.get("MediaType") or "—",
                     "status": ((d.get("Status") or {}).get("Health")) or "OK",
                 }
@@ -880,12 +889,11 @@ async def _redfish_storage_deep(
                 if dr.status_code != 200:
                     continue
                 d = dr.json() or {}
-                cap_bytes = d.get("CapacityBytes") or 0
                 found.append({
                     "name": d.get("Name") or d.get("Id") or "?",
                     "model": d.get("Model") or "—",
                     "sn": d.get("SerialNumber") or None,
-                    "capacityGB": round(cap_bytes / (1024**3), 0) if cap_bytes else 0,
+                    "capacityGB": _parse_drive_capacity_gb(d),
                     "mediaType": d.get("MediaType") or "—",
                     "status": ((d.get("Status") or {}).get("Health")) or "OK",
                 })
@@ -909,16 +917,16 @@ async def _redfish_storage_deep(
                         if dr.status_code != 200:
                             continue
                         d = dr.json() or {}
-                        cap_bytes = d.get("CapacityBytes") or 0
                         model = d.get("Model")
                         sn = d.get("SerialNumber")
-                        if not model and not sn and cap_bytes == 0:
+                        cap_gb = _parse_drive_capacity_gb(d)
+                        if not model and not sn and cap_gb == 0:
                             continue
                         found.append({
                             "name": d.get("Name") or d.get("Id") or "?",
                             "model": model or "—",
                             "sn": sn or None,
-                            "capacityGB": round(cap_bytes / (1024**3), 0) if cap_bytes else 0,
+                            "capacityGB": cap_gb,
                             "mediaType": d.get("MediaType") or "—",
                             "status": ((d.get("Status") or {}).get("Health")) or "OK",
                         })
