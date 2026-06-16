@@ -201,7 +201,7 @@ def _simulate(server: Server) -> dict:
         "memorySlots": None,
         "diskSlots": (
             {"total": server.disk_slot_count, "used": disk_count}
-            if server.disk_slot_count > 0 and disk_count > 0
+            if server.disk_slot_count > 0
             else None
         ),
         "recentLogs": recent_logs,
@@ -1574,8 +1574,38 @@ def get_latest_snapshot(server_id: str) -> BmcSnapshot | None:
         db.close()
 
 
-def snapshot_to_status(snap: BmcSnapshot) -> dict:
-    """Convert a persisted snapshot back to the frontend BmcStatus shape."""
+def snapshot_to_status(snap: BmcSnapshot, server: Server | None = None) -> dict:
+    """Convert a persisted snapshot back to the frontend BmcStatus shape.
+
+    When *server* is provided and has ``disk_slot_count > 0``, the
+    function patches ``diskSlots.total`` so that a stale snapshot
+    (taken before the operator manually entered the bay count) still
+    reflects the current configuration.  This is essential for Inspur
+    BMCs where Redfish cannot auto-detect the total bay count.
+    """
+    disk_slots = snap.disk_slots
+
+    # Patch diskSlots from server.disk_slot_count when the snapshot
+    # predates the manual configuration (or when the BMC can't detect
+    # the total at all, e.g. Inspur).
+    if server and server.disk_slot_count and server.disk_slot_count > 0:
+        if not disk_slots or disk_slots.get("total", 0) == 0:
+            # Count used drives from the snapshot so the bar stays accurate
+            used = 0
+            for d in (snap.drives or []):
+                model = d.get("model", "")
+                sn = d.get("sn")
+                cap = d.get("capacityGB", 0)
+                if (model and model != "—") or sn or (cap and cap > 0):
+                    used += 1
+            disk_slots = {
+                "total": server.disk_slot_count,
+                "used": used,
+            }
+            # Preserve backplane info if present
+            if isinstance(snap.disk_slots, dict) and snap.disk_slots.get("backplanes"):
+                disk_slots["backplanes"] = snap.disk_slots["backplanes"]
+
     return {
         "serverId": snap.server_id,
         "source": snap.source,
@@ -1589,7 +1619,7 @@ def snapshot_to_status(snap: BmcSnapshot) -> dict:
         "memoryModules": snap.memory_modules or [],
         "drives": snap.drives or [],
         "memorySlots": snap.memory_slots,
-        "diskSlots": snap.disk_slots,
+        "diskSlots": disk_slots,
         "fans": snap.fans or [],
         "psus": snap.psus or [],
         "recentLogs": snap.recent_logs or [],
