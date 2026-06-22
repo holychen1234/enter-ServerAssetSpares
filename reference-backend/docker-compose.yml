@@ -44,6 +44,20 @@ services:
       mysql:
         condition: service_healthy
 
+  # MCP SSE server — 供外部 Agent 平台通过 HTTP SSE 调用 CMDB 查询工具
+  mcp:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    command: ["python3", "-m", "app.mcp_server", "--sse", "--host", "0.0.0.0", "--port", "8100"]
+    ports:
+      - "${MCP_SSE_PORT:-8100}:8100"
+    depends_on:
+      mysql:
+        condition: service_healthy
+
   web:
     build:
       context: ..

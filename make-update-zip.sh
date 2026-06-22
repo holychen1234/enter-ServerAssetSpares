@@ -42,6 +42,17 @@ ok "前端构建完成"
 
 # ---- 打包 ----
 log "打包 $OUTPUT ..."
+
+# 可选：运行 reference-backend/download-wheels.sh 预下载 mcp 离线包
+# 如果私有化环境无法联网，打包前先执行：
+#   cd reference-backend && ./download-wheels.sh && cd ..
+if [ -d reference-backend/wheels ]; then
+    log "已包含离线 wheels ($(ls reference-backend/wheels/*.whl 2>/dev/null | wc -l) 个文件)"
+else
+    warn "未找到 wheels 目录，私有化环境需手动安装 mcp（需联网）"
+    warn "如需离线安装，请先运行: cd reference-backend && ./download-wheels.sh"
+fi
+
 zip -r "$OUTPUT" \
     src/ \
     reference-backend/ \

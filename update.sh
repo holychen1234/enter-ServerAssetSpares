@@ -187,6 +187,78 @@ docker cp reference-backend/alembic/. "$API_CONTAINER":/app/alembic/
 docker cp reference-backend/alembic.ini "$API_CONTAINER":/app/alembic.ini
 ok "后端代码已注入容器"
 
+# ---- 安装新依赖（mcp 等） ----
+log "安装新 Python 依赖..."
+# 优先从离线 wheels 安装（私有化环境），无 wheels 时回退在线安装
+WHEELS_DIR="reference-backend/wheels"
+if [ -d "$WHEELS_DIR" ] && ls "$WHEELS_DIR"/*.whl >/dev/null 2>&1; then
+    # 把 wheels 目录复制到容器内再安装
+    docker cp "$WHEELS_DIR" "$API_CONTAINER":/tmp/mcp-wheels
+    if docker exec "$API_CONTAINER" pip install /tmp/mcp-wheels/*.whl 2>/dev/null; then
+        ok "mcp 包已安装（离线 wheels）"
+    else
+        warn "离线 wheels 安装失败，MCP 服务将不可用"
+    fi
+    docker exec "$API_CONTAINER" rm -rf /tmp/mcp-wheels
+else
+    # 在线环境回退
+    docker exec "$API_CONTAINER" pip install "mcp>=1.27" 2>/dev/null && \
+        ok "mcp 包已安装（在线）" || \
+        warn "mcp 包安装失败，MCP 服务将不可用"
+fi
+
+# ---- 更新 / 启动 MCP SSE 服务 ----
+log "启动 MCP SSE 服务..."
+MCP_CONTAINER="${COMPOSE_PROJECT}-mcp-1"
+API_IMAGE=$(docker inspect "$API_CONTAINER" --format '{{.Config.Image}}' 2>/dev/null || echo "reference-backend-api:latest")
+
+if docker inspect "$MCP_CONTAINER" >/dev/null 2>&1; then
+    # 已有容器：注入最新代码并重启
+    docker cp reference-backend/app/. "$MCP_CONTAINER":/app/app/
+    docker restart "$MCP_CONTAINER"
+    ok "MCP 容器已重启"
+else
+    MCP_SSE_PORT="${MCP_SSE_PORT:-8100}"
+
+    # 先用 sleep 占位启动，确保容器处于运行状态以便后续注入
+    docker run -d \
+        --name "$MCP_CONTAINER" \
+        --network "${COMPOSE_PROJECT}_default" \
+        --restart unless-stopped \
+        --env-file reference-backend/.env \
+        --label "com.docker.compose.project=${COMPOSE_PROJECT}" \
+        --label "com.docker.compose.service=mcp" \
+        -p "${MCP_SSE_PORT}:8100" \
+        "$API_IMAGE" \
+        sleep infinity
+
+    # 注入代码和依赖
+    docker cp reference-backend/app/. "$MCP_CONTAINER":/app/app/
+    if [ -d "$WHEELS_DIR" ] && ls "$WHEELS_DIR"/*.whl >/dev/null 2>&1; then
+        docker cp "$WHEELS_DIR" "$MCP_CONTAINER":/tmp/mcp-wheels
+        docker exec "$MCP_CONTAINER" pip install /tmp/mcp-wheels/*.whl 2>/dev/null || true
+        docker exec "$MCP_CONTAINER" rm -rf /tmp/mcp-wheels
+    else
+        docker exec "$MCP_CONTAINER" pip install "mcp>=1.27" 2>/dev/null || true
+    fi
+
+    # 停止占位容器 → commit 固化 → 用真实命令重建
+    docker stop "$MCP_CONTAINER"
+    docker commit "$MCP_CONTAINER" "${COMPOSE_PROJECT}_mcp:latest"
+    docker rm "$MCP_CONTAINER"
+    docker run -d \
+        --name "$MCP_CONTAINER" \
+        --network "${COMPOSE_PROJECT}_default" \
+        --restart unless-stopped \
+        --env-file reference-backend/.env \
+        --label "com.docker.compose.project=${COMPOSE_PROJECT}" \
+        --label "com.docker.compose.service=mcp" \
+        -p "${MCP_SSE_PORT}:8100" \
+        "${COMPOSE_PROJECT}_mcp:latest" \
+        python3 -m app.mcp_server --sse --host 0.0.0.0 --port 8100
+    ok "MCP 容器已创建 (端口 $MCP_SSE_PORT)"
+fi
+
 # ---- 更新前端到 web 容器 ----
 # dist/ 只在 .dockerignore 中被排除，使用独立构建上下文打包进镜像，
 # 避免 readonly 容器文件系统导致 docker cp 失败。

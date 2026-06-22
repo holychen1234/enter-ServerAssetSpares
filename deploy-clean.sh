@@ -38,7 +38,7 @@ fi
 # 1. 彻底清空
 log "停止并删除所有旧容器和数据卷..."
 docker compose -f "$COMPOSE_FILE" -p "$PROJECT" down -v 2>/dev/null || true
-docker rm -f cmdb-api-1 cmdb-web-1 cmdb-mysql-1 2>/dev/null || true
+docker rm -f cmdb-api-1 cmdb-web-1 cmdb-mysql-1 cmdb-mcp-1 2>/dev/null || true
 
 # 2. 删除旧镜像
 log "删除旧镜像..."
@@ -74,6 +74,14 @@ fi
 # 7. 重启使代码生效
 docker compose -f "$COMPOSE_FILE" -p "$PROJECT" restart api
 ok "API 容器已重启"
+
+# 8. 注入代码到 MCP 容器并重启
+MCP_CONTAINER=$(docker compose -f "$COMPOSE_FILE" -p "$PROJECT" ps -q mcp 2>/dev/null)
+if [ -n "$MCP_CONTAINER" ]; then
+    docker cp reference-backend/app/. "$MCP_CONTAINER":/app/app/
+    docker restart "$MCP_CONTAINER"
+    ok "MCP 容器已更新并重启"
+fi
 
 IP=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "服务器IP")
 PORT="${WEB_PORT:-8080}"
