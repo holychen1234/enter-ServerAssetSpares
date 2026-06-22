@@ -89,6 +89,37 @@ do_up() {
     log "启动服务..."
     docker compose -f "$COMPOSE_FILE" -p cmdb up -d
 
+    # ---- 注入最新代码 + 安装 MCP 依赖 ----
+    log "注入最新后端代码..."
+    API_CONTAINER=$(docker compose -f "$COMPOSE_FILE" -p cmdb ps -q api 2>/dev/null)
+    if [ -n "$API_CONTAINER" ]; then
+        docker cp reference-backend/app/. "$API_CONTAINER":/app/app/
+        docker cp reference-backend/alembic/. "$API_CONTAINER":/app/alembic/
+        docker cp reference-backend/alembic.ini "$API_CONTAINER":/app/alembic.ini
+        ok "后端代码已更新到容器"
+    fi
+
+    # MCP 容器：注入代码 + 安装 mcp 依赖
+    MCP_CONTAINER=$(docker compose -f "$COMPOSE_FILE" -p cmdb ps -q mcp 2>/dev/null)
+    if [ -n "$MCP_CONTAINER" ]; then
+        docker cp reference-backend/app/. "$MCP_CONTAINER":/app/app/
+        WHEELS_DIR="reference-backend/wheels"
+        if [ -d "$WHEELS_DIR" ] && ls "$WHEELS_DIR"/*.whl >/dev/null 2>&1; then
+            docker cp "$WHEELS_DIR" "$MCP_CONTAINER":/tmp/mcp-wheels
+            docker exec "$MCP_CONTAINER" pip install /tmp/mcp-wheels/*.whl 2>/dev/null || \
+                warn "离线 wheels 安装失败，尝试在线安装..."
+            docker exec "$MCP_CONTAINER" rm -rf /tmp/mcp-wheels 2>/dev/null || true
+        else
+            docker exec "$MCP_CONTAINER" pip install "mcp>=1.27" 2>/dev/null || \
+                warn "mcp 包安装失败，MCP 服务将不可用"
+        fi
+        docker restart "$MCP_CONTAINER"
+        ok "MCP 容器已更新并重启"
+    fi
+
+    docker compose -f "$COMPOSE_FILE" -p cmdb restart api
+    ok "API 容器已重启"
+
     local ip
     ip=$(hostname -I 2>/dev/null | awk '{print $1}' || echo "服务器IP")
     local port="${WEB_PORT:-8080}"
