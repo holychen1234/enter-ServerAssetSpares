@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "cmdb-ai": {
+      "command": "docker",
+      "args": ["exec", "-i", "cmdb-api-1", "python3", "-m", "app.mcp_server"]
+    }
+  }
+}
