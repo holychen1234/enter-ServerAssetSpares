@@ -53,9 +53,20 @@ CACHE_TTL_SECONDS = 30
 HISTORY_MAX_POINTS = 12
 HISTORY_INTERVAL_LABEL = "5m"  # purely cosmetic — used for x-axis ticks
 
-# Limit concurrent HTTP requests to a single BMC so we don't overwhelm
-# its management controller (many BMCs cap at 4–8 simultaneous sessions).
-_BMC_SEMAPHORE = asyncio.Semaphore(3)
+# Per-host semaphores to limit concurrent HTTP requests to a single BMC.
+# Inspur BMCs get semaphore(1) because their lighttpd cannot handle
+# concurrent TLS connections (drops with httpcore.ConnectError).
+# Other vendors default to semaphore(3) (most BMCs cap at 4–8 sessions).
+_HOST_SEMAPHORES: dict[str, asyncio.Semaphore] = {}
+
+
+def _get_bmc_semaphore(base: str, manufacturer: str = "") -> asyncio.Semaphore:
+    """Return the semaphore for a BMC host, creating it on first access."""
+    host = base.removeprefix("https://").removeprefix("http://")
+    if host not in _HOST_SEMAPHORES:
+        concurrency = 1 if (manufacturer and "inspur" in manufacturer.lower()) else 3
+        _HOST_SEMAPHORES[host] = asyncio.Semaphore(concurrency)
+    return _HOST_SEMAPHORES[host]
 
 
 # ---------------------------------------------------------------------------
@@ -693,7 +704,7 @@ async def _redfish_storage_modern(
         if not ctrl_href:
             return hrefs
         try:
-            async with _BMC_SEMAPHORE:
+            async with _get_bmc_semaphore(base):
                 r = await client.get(f"{base}{ctrl_href}")
         except Exception:
             return hrefs
@@ -734,7 +745,7 @@ async def _redfish_storage_modern(
     # ── Phase 2: fetch every drive detail in parallel ──
     async def _get_drive(href: str) -> dict | None:
         try:
-            async with _BMC_SEMAPHORE:
+            async with _get_bmc_semaphore(base):
                 r = await client.get(f"{base}{href}")
         except Exception:
             return None
@@ -986,7 +997,7 @@ async def _redfish_memory_dims(
         if not href:
             return None
         try:
-            async with _BMC_SEMAPHORE:
+            async with _get_bmc_semaphore(base):
                 r = await client.get(f"{base}{href}")
         except Exception:
             return None
@@ -1118,6 +1129,13 @@ async def _collect_redfish(server: Server) -> dict | None:
         ) as client:
             session_uri: str | None = None
             try:
+                # Pre-create the per-host semaphore so inner functions
+                # (_redfish_storage_drives, _redfish_memory_dims, etc.)
+                # inherit the correct concurrency limit for this vendor.
+                # Must be done BEFORE any HTTP request so the first lookup
+                # creates the semaphore with the right manufacturer hint.
+                _get_bmc_semaphore(base, server.manufacturer or "")
+
                 # Try session auth first (required by Inspur & many enterprise
                 # BMCs), fall back to Basic auth on the client if session isn't
                 # supported.
@@ -1130,11 +1148,21 @@ async def _collect_redfish(server: Server) -> dict | None:
                     else:
                         client.auth = (server.bmc_user, server.bmc_password)
 
-                # Discover collection members in parallel
-                chassis_path, system_path = await asyncio.gather(
-                    _redfish_first_member(client, base, "Chassis"),
-                    _redfish_first_member(client, base, "Systems"),
-                )
+                # Discover collection members.
+                # Inspur BMC lighttpd cannot handle concurrent TLS connections,
+                # so serialise these two discovery calls for Inspur.
+                if server.manufacturer and "inspur" in server.manufacturer.lower():
+                    chassis_path = await _redfish_first_member(
+                        client, base, "Chassis"
+                    )
+                    system_path = await _redfish_first_member(
+                        client, base, "Systems"
+                    )
+                else:
+                    chassis_path, system_path = await asyncio.gather(
+                        _redfish_first_member(client, base, "Chassis"),
+                        _redfish_first_member(client, base, "Systems"),
+                    )
                 if not chassis_path or not system_path:
                     # Fallback: some BMCs (older XFusion, some Inspur) expose
                     # Chassis/Systems at the root member index 1 but don't
@@ -1149,26 +1177,62 @@ async def _collect_redfish(server: Server) -> dict | None:
                 # Resolve slot-detection strategy for this vendor
                 slot_strategy = _get_slot_strategy(server.manufacturer)
 
-                thermal_res, power_res, system_res, drives, mem_modules, logs, \
-                    memory_slot_total, disk_slot_total, backplane_info = (
-                    await asyncio.gather(
-                        client.get(f"{base}/{chassis_path}/Thermal"),
-                        client.get(f"{base}/{chassis_path}/Power"),
-                        client.get(f"{base}/{system_path}"),
-                        _redfish_storage_drives(client, base, system_path),
-                        _redfish_memory_dims(client, base, system_path),
-                        _redfish_recent_logs(client, base),
-                        slot_strategy.get_memory_slot_total(
-                            client, base, system_path, chassis_path,
-                        ),
-                        slot_strategy.get_disk_slot_total(
-                            client, base, chassis_path,
-                        ),
-                        slot_strategy.get_disk_backplane_info(
-                            client, base, chassis_path,
-                        ),
+                # Inspur BMC lighttpd cannot handle concurrent TLS connections
+                # (drops with httpcore.ConnectError), so we serialise *all*
+                # requests for those hosts.  Other vendors keep the parallel
+                # gather for speed.
+                if server.manufacturer and "inspur" in server.manufacturer.lower():
+                    thermal_res = await client.get(
+                        f"{base}/{chassis_path}/Thermal"
                     )
-                )
+                    power_res = await client.get(
+                        f"{base}/{chassis_path}/Power"
+                    )
+                    system_res = await client.get(
+                        f"{base}/{system_path}"
+                    )
+                    drives = await _redfish_storage_drives(
+                        client, base, system_path
+                    )
+                    mem_modules = await _redfish_memory_dims(
+                        client, base, system_path
+                    )
+                    logs = await _redfish_recent_logs(client, base)
+                    memory_slot_total = await slot_strategy.get_memory_slot_total(
+                        client, base, system_path, chassis_path,
+                    )
+                    disk_slot_total = await slot_strategy.get_disk_slot_total(
+                        client, base, chassis_path,
+                    )
+                    backplane_info = await slot_strategy.get_disk_backplane_info(
+                        client, base, chassis_path,
+                    )
+                else:
+                    thermal_res, power_res, system_res, drives, mem_modules, \
+                        logs, memory_slot_total, disk_slot_total, \
+                        backplane_info = (
+                        await asyncio.gather(
+                            client.get(f"{base}/{chassis_path}/Thermal"),
+                            client.get(f"{base}/{chassis_path}/Power"),
+                            client.get(f"{base}/{system_path}"),
+                            _redfish_storage_drives(
+                                client, base, system_path
+                            ),
+                            _redfish_memory_dims(
+                                client, base, system_path
+                            ),
+                            _redfish_recent_logs(client, base),
+                            slot_strategy.get_memory_slot_total(
+                                client, base, system_path, chassis_path,
+                            ),
+                            slot_strategy.get_disk_slot_total(
+                                client, base, chassis_path,
+                            ),
+                            slot_strategy.get_disk_backplane_info(
+                                client, base, chassis_path,
+                            ),
+                        )
+                    )
 
                 if thermal_res.status_code != 200 or system_res.status_code != 200:
                     logger.warning(
@@ -1428,9 +1492,14 @@ async def get_status(server: Server, *, force_refresh: bool = False) -> dict:
     if not is_offline:
         try:
             if server.bmc_protocol == "redfish":
+                # Inspur BMCs need more time because we serialise all
+                # requests to work around their lighttpd TLS concurrency bug.
+                _vendor_timeout = settings.redfish_timeout_seconds + 10
+                if server.manufacturer and "inspur" in server.manufacturer.lower():
+                    _vendor_timeout = max(_vendor_timeout, 150)
                 live = await asyncio.wait_for(
                     _collect_redfish(server),
-                    timeout=settings.redfish_timeout_seconds + 10,
+                    timeout=_vendor_timeout,
                 )
             else:
                 live = await asyncio.wait_for(
