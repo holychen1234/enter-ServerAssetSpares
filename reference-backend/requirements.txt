@@ -14,3 +14,5 @@ httpx==0.27.2
 apscheduler==3.10.4
 alembic==1.18.4
 mcp>=1.27
+# Do NOT upgrade starlette past 0.40 — breaks FastAPI 0.115.2 route registration
+starlette<0.40.0

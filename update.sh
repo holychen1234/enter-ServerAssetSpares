@@ -208,6 +208,9 @@ else
         warn "mcp 包安装失败，MCP 服务将不可用"
 fi
 
+# 强制锁定 starlette 版本，防止 mcp 安装时拉升导致 FastAPI 路由注册失败
+docker exec "$API_CONTAINER" pip install "starlette>=0.37.2,<0.40.0" 2>/dev/null || true
+
 # ---- 更新 / 启动 MCP SSE 服务 ----
 log "启动 MCP SSE 服务..."
 MCP_CONTAINER="${COMPOSE_PROJECT}-mcp-1"
@@ -242,6 +245,9 @@ else
     else
         docker exec "$MCP_CONTAINER" pip install "mcp>=1.27" 2>/dev/null || true
     fi
+
+    # 强制锁定 starlette 版本
+    docker exec "$MCP_CONTAINER" pip install "starlette>=0.37.2,<0.40.0" 2>/dev/null || true
 
     # 停止占位容器 → commit 固化 → 用真实命令重建
     docker stop "$MCP_CONTAINER"
