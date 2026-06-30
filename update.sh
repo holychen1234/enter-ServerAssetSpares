@@ -96,6 +96,7 @@ fi
 log "覆盖源代码..."
 # 只覆盖受版本控制的关键目录，保留本地配置和备份
 for item in src reference-backend public supabase index.html \
+    docker-compose.yml \
     package.json pnpm-lock.yaml vite.config.ts tsconfig.json \
     tsconfig.app.json tsconfig.node.json tailwind.config.ts \
     postcss.config.js components.json eslint.config.js; do
@@ -300,9 +301,20 @@ DOCKERFILE
 fi
 
 # ---- 重启 api ----
-log "重启 API 容器..."
+# 使用 up -d --force-recreate 以应用 docker-compose.yml 变更（如端口映射）
+log "重建 API 容器..."
+API_IMAGE=$(docker inspect "$API_CONTAINER" --format '{{.Config.Image}}' 2>/dev/null || echo "reference-backend-api:latest")
+docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" up -d --force-recreate api
+ok "API 容器已重建（应用 compose 变更）"
+
+# 重建后需重新注入后端代码（容器已从镜像重建，docker cp 的内容会丢失）
+log "重新注入后端代码..."
+API_CONTAINER=$(docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" ps -q api 2>/dev/null)
+docker cp reference-backend/app/. "$API_CONTAINER":/app/app/
+docker cp reference-backend/alembic/. "$API_CONTAINER":/app/alembic/
+docker cp reference-backend/alembic.ini "$API_CONTAINER":/app/alembic.ini
 docker compose -f "$COMPOSE_FILE" -p "$COMPOSE_PROJECT" restart api
-ok "API 容器已重启"
+ok "后端代码已重新注入并重启"
 
 # ---- 清理 ----
 rm -rf dist.bak
