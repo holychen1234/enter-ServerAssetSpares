@@ -66,18 +66,6 @@ services:
       mysql:
         condition: service_healthy
 
-  # MCP SSE server — 供外部 Agent 平台（Dify / LangChain / 自定义）通过 HTTP SSE 调用 CMDB 工具
-  mcp:
-    image: reference-backend-api:latest
-    restart: unless-stopped
-    env_file: reference-backend/.env
-    command: ["python3", "-m", "app.mcp_server", "--sse", "--host", "0.0.0.0", "--port", "8100"]
-    ports:
-      - "${MCP_SSE_PORT:-8100}:8100"
-    depends_on:
-      mysql:
-        condition: service_healthy
-
   web:
     image: nginx:latest
     restart: unless-stopped
