@@ -564,11 +564,115 @@
         }
       }
     },
+    "/ai/get-server-slots": {
+      "get": {
+        "operationId": "get_server_slots",
+        "summary": "获取主机内存与磁盘槽位信息",
+        "description": "获取某台主机的内存和磁盘总槽位数及已使用槽位数。数据来源：BMC 快照 → 实时采集 → 数据库字段。适用场景：用户问「这台服务器有多少内存槽位」「插了几根内存」「磁盘槽位用了几个」「还剩几个盘位」等。",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "主机名、SN序列号、资产编号或IP地址"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "槽位信息",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "found": {
+                      "type": "boolean"
+                    },
+                    "hostname": {
+                      "type": "string"
+                    },
+                    "sn": {
+                      "type": "string"
+                    },
+                    "assetTag": {
+                      "type": "string"
+                    },
+                    "manufacturer": {
+                      "type": "string"
+                    },
+                    "model": {
+                      "type": "string"
+                    },
+                    "source": {
+                      "type": "string",
+                      "enum": ["snapshot", "live", "db_fallback"],
+                      "description": "数据来源"
+                    },
+                    "memorySlots": {
+                      "type": "object",
+                      "properties": {
+                        "total": {
+                          "type": "integer",
+                          "description": "内存总槽位数"
+                        },
+                        "used": {
+                          "type": "integer",
+                          "description": "已使用内存槽位数"
+                        }
+                      },
+                      "nullable": true,
+                      "description": "内存槽位信息，BMC 从未采集时为 null"
+                    },
+                    "diskSlots": {
+                      "type": "object",
+                      "properties": {
+                        "total": {
+                          "type": "integer",
+                          "description": "磁盘总槽位数"
+                        },
+                        "used": {
+                          "type": "integer",
+                          "description": "已使用磁盘槽位数"
+                        },
+                        "formFactor": {
+                          "type": "string",
+                          "description": "磁盘尺寸（如 2.5 / 3.5）"
+                        },
+                        "backplanes": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "formFactor": {
+                                "type": "string"
+                              },
+                              "slots": {
+                                "type": "integer"
+                              }
+                            }
+                          },
+                          "description": "多背板详情"
+                        }
+                      },
+                      "nullable": true,
+                      "description": "磁盘槽位信息，BMC 从未采集且未配置 disk_slot_count 时为 null"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/ai/get-server-bmc-status": {
       "get": {
         "operationId": "get_server_bmc_status",
         "summary": "获取主机 BMC 实时硬件状态",
-        "description": "获取某台主机的 BMC 实时硬件状态信息，包括电源状态、整机健康、CPU温度、进风口温度、风扇列表（名称/转速/状态/数量）、内存详情（总量 + 每根 DIMM 的槽位/型号/序列号/容量/类型/状态）、磁盘列表（名称/型号/序列号/容量/介质类型/状态/数量）、电源模块列表（名称/当前功率/额定功率/状态/数量）、启动进度、告警列表等。数据来源于 BMC Redfish/IPMI 实时采集，非在线主机回退为模拟数据。适用场景：用户问「DB-SH-01 的 CPU 温度是多少」「这台机器有几根内存」「查一下 10.0.1.5 的内存配置」「硬盘和内存的详细信息」「电源功率使用情况」等。",
+        "description": "获取某台主机的 BMC 实时硬件状态信息，包括电源状态、整机健康、CPU温度、进风口温度、风扇列表（名称/转速/状态）、内存详情（总量 + 每根 DIMM 的槽位/型号/序列号/容量/类型/状态）、磁盘列表（名称/型号/序列号/容量/介质类型/状态）、电源模块列表（当前功率/额定功率/状态）、启动进度、告警列表等。数据来源于 BMC Redfish 实时采集，优先读取每日快照。适用场景：用户问「DB-SH-01 的 CPU 温度是多少」「这台机器有几个风扇」「电源功率使用情况」等。",
         "parameters": [
           {
             "name": "identifier",
@@ -797,6 +901,131 @@
                         }
                       }
                     }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ai/search-terminal-assets": {
+      "get": {
+        "operationId": "search_terminal_assets",
+        "summary": "搜索终端资产",
+        "description": "按关键词或多条件搜索终端资产（办公电脑、笔记本等），返回计算机名、SN、资产编号、厂商、型号、OS、使用人、部门、IP、状态。适用场景：用户问「市场部有多少台电脑」「Windows 11 的终端有哪些」「张三的电脑配置」「公司有几台 Mac」等。",
+        "parameters": [
+          {
+            "name": "keyword",
+            "in": "query",
+            "required": false,
+            "schema": {"type": "string"},
+            "description": "任意关键词，模糊匹配计算机名/SN/资产编号/IP/型号/使用人/部门"
+          },
+          {
+            "name": "manufacturer",
+            "in": "query",
+            "required": false,
+            "schema": {"type": "string"},
+            "description": "厂商过滤: Dell, HP, Lenovo, Apple, Huawei, ASUS, Acer, Microsoft, Other"
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {"type": "string", "enum": ["online", "offline", "maintenance", "retired"]},
+            "description": "状态过滤"
+          },
+          {
+            "name": "os",
+            "in": "query",
+            "required": false,
+            "schema": {"type": "string"},
+            "description": "操作系统过滤，如 Windows 11 / macOS / Ubuntu"
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {"type": "integer", "default": 20, "minimum": 1, "maximum": 100},
+            "description": "返回条数上限"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "匹配的终端资产列表",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "count": {"type": "integer"},
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "hostname": {"type": "string"},
+                          "sn": {"type": "string"},
+                          "assetTag": {"type": "string"},
+                          "manufacturer": {"type": "string"},
+                          "model": {"type": "string"},
+                          "os": {"type": "string"},
+                          "bizIp": {"type": "string"},
+                          "userName": {"type": "string"},
+                          "status": {"type": "string"}
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ai/get-terminal-asset-detail": {
+      "get": {
+        "operationId": "get_terminal_asset_detail",
+        "summary": "获取终端资产完整详情",
+        "description": "根据计算机名、SN序列号、资产编号或IP地址获取单台终端资产的全部信息，包括配置、使用人、部门、位置、网络、采购信息等。适用场景：用户问「TS-001 的配置」「张三的电脑信息」「资产编号 AST-PC-001 的电脑」等。",
+        "parameters": [
+          {
+            "name": "identifier",
+            "in": "query",
+            "required": true,
+            "schema": {"type": "string"},
+            "description": "计算机名、SN序列号、资产编号或IP地址"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "终端资产详情",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "found": {"type": "boolean"},
+                    "message": {"type": "string"},
+                    "hostname": {"type": "string"},
+                    "sn": {"type": "string"},
+                    "assetTag": {"type": "string"},
+                    "manufacturer": {"type": "string"},
+                    "model": {"type": "string"},
+                    "os": {"type": "string"},
+                    "cpuModel": {"type": "string"},
+                    "memoryGB": {"type": "integer"},
+                    "diskGB": {"type": "integer"},
+                    "bizIp": {"type": "string"},
+                    "mac": {"type": "string"},
+                    "userName": {"type": "string"},
+                    "department": {"type": "string"},
+                    "location": {"type": "string"},
+                    "status": {"type": "string"},
+                    "purchaseDate": {"type": "string"},
+                    "warrantyEnd": {"type": "string"}
                   }
                 }
               }

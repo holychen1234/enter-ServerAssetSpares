@@ -1,14 +1,11 @@
-"""AI query endpoints for Feishu Aily / Dify integration.
+"""AI query endpoints for Feishu Aily / Dify / MCP platform integration.
 
-Aily/Dify calls these tools via HTTP with an X-API-Key header.
 Each endpoint is designed as a discrete "tool" with clear
 input/output schemas so the AI agent can route user questions correctly."""
 
 import json
-import os
-from typing import Annotated
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -17,20 +14,8 @@ from app.api.serializers import part_to_dict, server_to_dict, terminal_asset_to_
 from app.db.base import get_db
 from app.db.models import Part, Server, TerminalAsset
 from app.services import bmc as bmc_svc
-from app.settings import settings
 
 router = APIRouter(prefix="/ai", tags=["ai"])
-
-
-# ── API key auth ──────────────────────────────────────────────
-
-def verify_api_key(
-    x_api_key: Annotated[str | None, Header()] = None,
-):
-    if not settings.ai_api_key:
-        raise HTTPException(501, "AI_API_KEY not configured on server")
-    if not x_api_key or x_api_key != settings.ai_api_key:
-        raise HTTPException(401, "invalid or missing X-API-Key")
 
 
 # ── helpers ───────────────────────────────────────────────────
@@ -127,7 +112,6 @@ def search_servers(
     manufacturer: str = Query(default="", description="厂商过滤，支持中英文（戴尔/Dell, 惠普/HPE, 联想/Lenovo, 浪潮/Inspur, 超微/Supermicro, 华为/Huawei, 超聚变/XFusion）"),
     limit: int = Query(default=20, ge=1, le=100, description="返回条数上限"),
     db: Session = Depends(get_db),
-    _: None = Depends(verify_api_key),
 ):
     """搜索主机资产。Aily use this when user asks about servers by name,
     SN, IP, model, manufacturer, location, or any keyword combination."""
@@ -179,7 +163,6 @@ def search_servers(
 def get_server_detail(
     identifier: str = Query(..., description="主机名、SN序列号、资产编号或IP地址"),
     db: Session = Depends(get_db),
-    _: None = Depends(verify_api_key),
 ):
     """获取单台主机完整信息。Aily use this when user asks for detailed
     info about a specific server, e.g. CPU model, memory size, disk count.
@@ -197,7 +180,20 @@ def get_server_detail(
     )
     if not s:
         return {"found": False, "message": f"未找到主机: {identifier}"}
-    return {"found": True, **server_to_dict(s)}
+    result = {"found": True, **server_to_dict(s)}
+    # Enrich with slot utilization from BMC snapshot (lightweight — no live poll)
+    snap = bmc_svc.get_latest_snapshot(s.id)
+    if snap:
+        status = bmc_svc.snapshot_to_status(snap, s)
+        result["memorySlots"] = status.get("memorySlots")
+        result["diskSlots"] = status.get("diskSlots")
+    else:
+        if s.disk_slot_count > 0:
+            result["diskSlots"] = {"total": s.disk_slot_count, "used": s.disk_count}
+        else:
+            result["diskSlots"] = None
+        result["memorySlots"] = None
+    return result
 
 
 @router.get("/search-parts")
@@ -210,7 +206,6 @@ def search_parts(
     status: str = Query(default="", description="状态: in_stock, allocated, in_use, scrapped"),
     limit: int = Query(default=20, ge=1, le=100, description="返回条数上限"),
     db: Session = Depends(get_db),
-    _: None = Depends(verify_api_key),
 ):
     """搜索备件库存。Aily use this when user asks about spare parts,
     disk models, memory specs, inventory levels, etc."""
@@ -247,7 +242,6 @@ def search_parts(
 def get_server_stats(
     group_by: str = Query(default="status", description="统计维度: status, idc, manufacturer"),
     db: Session = Depends(get_db),
-    _: None = Depends(verify_api_key),
 ):
     """统计主机资产概况。Aily use this when user asks about totals,
     counts by status, distribution by IDC, manufacturer breakdown, etc."""
@@ -273,7 +267,6 @@ def get_server_stats(
 async def get_server_disks(
     identifier: str = Query(..., description="主机名、SN序列号、资产编号或IP地址"),
     db: Session = Depends(get_db),
-    _: None = Depends(verify_api_key),
 ):
     """获取某台主机的硬盘列表（含型号、SN、容量）。
     数据来源于 BMC Redfish 实时采集，非离线/retired 主机回退为模拟数据。
@@ -315,11 +308,71 @@ async def get_server_disks(
     }
 
 
+@router.get("/get-server-slots")
+async def get_server_slots(
+    identifier: str = Query(..., description="主机名、SN序列号、资产编号或IP地址"),
+    db: Session = Depends(get_db),
+):
+    """获取单台主机的内存与磁盘槽位信息（总槽位数和已使用槽位数）。
+    数据优先来自 BMC 每日快照（毫秒级响应），无快照时尝试实时采集，
+    均不可用时回退到数据库字段。
+    Aily/Dify use this when user asks about memory slot count, disk slot
+    utilization, how many memory slots are populated, total disk bays, etc."""
+    s = (
+        db.query(Server)
+        .filter(
+            (Server.hostname == identifier)
+            | (Server.sn == identifier)
+            | (Server.asset_tag == identifier)
+            | (Server.mgmt_ip == identifier)
+            | (Server.biz_ip == identifier)
+        )
+        .first()
+    )
+    if not s:
+        return {"found": False, "message": f"未找到主机: {identifier}"}
+
+    snap = bmc_svc.get_latest_snapshot(s.id)
+    if snap:
+        status = bmc_svc.snapshot_to_status(snap, s)
+        memory_slots = status.get("memorySlots")
+        disk_slots = status.get("diskSlots")
+        source = "snapshot"
+    else:
+        # No snapshot yet — fetch live now and persist so future queries are instant.
+        snap = await bmc_svc.collect_and_save(s)
+        if snap:
+            status = bmc_svc.snapshot_to_status(snap, s)
+            memory_slots = status.get("memorySlots")
+            disk_slots = status.get("diskSlots")
+            source = "live"
+        else:
+            # DB fallback: disk slots use manual configuration, memory slots
+            # are always auto-detectable via BMC so no DB column exists.
+            source = "db_fallback"
+            if s.disk_slot_count > 0:
+                disk_slots = {"total": s.disk_slot_count, "used": s.disk_count}
+            else:
+                disk_slots = None
+            memory_slots = None
+
+    return {
+        "found": True,
+        "hostname": s.hostname,
+        "sn": s.sn,
+        "assetTag": s.asset_tag,
+        "manufacturer": s.manufacturer,
+        "model": s.model,
+        "source": source,
+        "memorySlots": memory_slots,
+        "diskSlots": disk_slots,
+    }
+
+
 @router.get("/get-server-bmc-status")
 async def get_server_bmc_status(
     identifier: str = Query(..., description="主机名、SN序列号、资产编号或IP地址"),
     db: Session = Depends(get_db),
-    _: None = Depends(verify_api_key),
 ):
     """获取主机 BMC 实时状态。包括 CPU 温度、风扇状态/转速/数量、磁盘型号/
     序列号/容量/状态、内存 DIMM 详情（槽位/型号/序列号/容量/类型/状态）/
@@ -445,7 +498,6 @@ def search_terminal_assets(
     os: str = Query(default="", description="操作系统过滤"),
     limit: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
-    _: None = Depends(verify_api_key),
 ):
     """搜索终端资产。Aily/Dify use this when user asks about terminal
     assets, desktops, laptops, or employee computers."""
@@ -483,7 +535,6 @@ def search_terminal_assets(
 def get_terminal_asset_detail(
     identifier: str = Query(..., description="计算机名、SN序列号、资产编号或IP地址"),
     db: Session = Depends(get_db),
-    _: None = Depends(verify_api_key),
 ):
     """获取单台终端资产完整信息。Aily/Dify use this when user asks
     for detailed info about a specific terminal asset.
