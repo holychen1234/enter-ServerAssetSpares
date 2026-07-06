@@ -523,8 +523,8 @@ def _build_slot_info(
 # ---------------------------------------------------------------------------
 # Redfish
 # ---------------------------------------------------------------------------
-async def _tcp_reachable(mgmt_ip: str, port: int = 443, timeout: float = 3.0) -> bool:
-    """Quick TCP pre-check — returns False in ~3s if the BMC is firewalled."""
+async def _tcp_reachable(mgmt_ip: str, port: int = 443, timeout: float = 5.0) -> bool:
+    """Quick TCP pre-check — returns False in ~5s if the BMC is firewalled."""
     try:
         _, writer = await asyncio.wait_for(
             asyncio.open_connection(mgmt_ip, port),
@@ -1630,13 +1630,31 @@ def _in_cooldown(mgmt_ip: str | None) -> bool:
 async def collect_and_save(server: Server) -> BmcSnapshot | None:
     """Poll the BMC once, persist the result to the database, and return the
     snapshot row.  Returns None when the BMC is unreachable."""
-    # Fast TCP pre-check (3s) — avoid a 70s Redfish timeout when the BMC
-    # is behind a firewall or powered off.
-    if server.mgmt_ip and not await _tcp_reachable(server.mgmt_ip):
-        logger.info("bmc snapshot skipped for %s — tcp unreachable (ip=%s)", server.id, server.mgmt_ip)
-        _set_cooldown(server.mgmt_ip)
-        return None
+    # Fast TCP pre-check — avoid a 70s Redfish timeout when the BMC is
+    # behind a firewall or powered off.  The check is a *soft hint* only:
+    # a slow BMC (Dell iDRAC under load, network jitter) may miss the 5s
+    # window but still respond fine to the actual Redfish request which
+    # carries its own 60s timeout.  We never skip the real attempt just
+    # because the TCP pre-check failed.
+    if server.mgmt_ip:
+        reachable = await _tcp_reachable(server.mgmt_ip)
+        if not reachable:
+            logger.info(
+                "bmc tcp pre-check failed for %s (ip=%s) — "
+                "will still attempt Redfish",
+                server.id, server.mgmt_ip,
+            )
+
+    # Attempt Redfish, with one retry for transient failures (e.g.
+    # temporary BMC overload, network hiccup).
     payload = await get_status(server, force_refresh=True)
+    if payload.get("source") != "live":
+        logger.info(
+            "bmc first attempt failed for %s — retrying after 2s", server.id,
+        )
+        await asyncio.sleep(2)
+        payload = await get_status(server, force_refresh=True)
+
     if payload.get("source") != "live":
         logger.info("bmc snapshot skipped for %s — source=%s", server.id, payload.get("source"))
         _set_cooldown(server.mgmt_ip)
