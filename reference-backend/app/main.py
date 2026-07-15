@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import IntegrityError, DataError, ProgrammingError
 
-from app.api import ai_query, auth_users, parts, servers, terminal_assets
+from app.api import ai_query, auth_users, feishu, parts, servers, terminal_assets
 from app.db.base import SessionLocal
 from app.db.models import Server
 from app.services import bmc as bmc_svc
@@ -127,3 +127,4 @@ app.include_router(servers.router, prefix="/api")
 app.include_router(parts.router, prefix="/api")
 app.include_router(terminal_assets.router, prefix="/api")
 app.include_router(ai_query.router, prefix="/api")
+app.include_router(feishu.router, prefix="/api")

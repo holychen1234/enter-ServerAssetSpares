@@ -26,10 +26,30 @@ err()  { echo -e "${RED}[ERR ]${NC}  $*" >&2; }
 SCRIPT_DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
 cd "$SCRIPT_DIR"
 
-ZIP_FILE="${1:-}"
+# ---- 参数解析 ----
+SKIP_BACKUP=false
+ZIP_FILE=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --no-backup|-n)
+            SKIP_BACKUP=true
+            shift
+            ;;
+        *)
+            ZIP_FILE="$1"
+            shift
+            ;;
+    esac
+done
+
 if [ -z "$ZIP_FILE" ]; then
-    echo "用法: $0 <github-zip包路径>"
-    echo "示例: $0 ./enter-ServerAssetSpares-enter-main.zip"
+    echo "用法: $0 [--no-backup|-n] <zip包路径>"
+    echo "选项:"
+    echo "  -n, --no-backup  跳过数据库备份（加速更新，适合高频小改动）"
+    echo ""
+    echo "示例:"
+    echo "  $0 ./cmdb-update-20260715-095728.zip"
+    echo "  $0 -n ./cmdb-update-20260715-095728.zip         # 快速更新，不备份DB"
     exit 1
 fi
 if [ ! -f "$ZIP_FILE" ]; then
@@ -52,10 +72,14 @@ if ! docker compose version &>/dev/null; then
     exit 1
 fi
 
-# ---- 备份 ----
-log "备份数据库..."
-mkdir -p "$BACKUP_DIR"
-TS=$(date +%Y%m%d-%H%M%S)
+# ---- 备份数据库（可通过 --no-backup 跳过）----
+BACKUP_SQL=""
+if [ "$SKIP_BACKUP" = true ]; then
+    warn "已跳过数据库备份 (--no-backup)"
+else
+    log "备份数据库..."
+    mkdir -p "$BACKUP_DIR"
+    TS=$(date +%Y%m%d-%H%M%S)
 ENV_FILE="reference-backend/.env"
 if [ -f "$ENV_FILE" ]; then
     set -a; source "$ENV_FILE"; set +a
@@ -70,6 +94,7 @@ if [ -f "$ENV_FILE" ]; then
 else
     warn ".env 不存在，跳过数据库备份"
 fi
+fi  # --no-backup 判断结束
 
 # ---- 备份当前 dist 和 .env ----
 log "保留运行环境配置..."
@@ -251,5 +276,9 @@ echo ""
 ok "升级完成"
 echo ""
 echo "  访问控制台确认功能正常。"
-echo "  如遇问题可回滚数据库:"
-echo "    gunzip -c $BACKUP_DIR/pre-update-${TS}.sql.gz | docker compose -f $COMPOSE_FILE -p $COMPOSE_PROJECT exec -T mysql mysql -u\${MYSQL_USER:-cmdb} -p\${MYSQL_PASSWORD:-cmdb123} \${MYSQL_DATABASE:-cmdb}"
+if [ "$SKIP_BACKUP" != true ] && [ -n "${TS:-}" ]; then
+    echo "  如遇问题可回滚数据库:"
+    echo "    gunzip -c $BACKUP_DIR/pre-update-${TS}.sql.gz | docker compose -f $COMPOSE_FILE -p $COMPOSE_PROJECT exec -T mysql mysql -u\${MYSQL_USER:-cmdb} -p\${MYSQL_PASSWORD:-cmdb123} \${MYSQL_DATABASE:-cmdb}"
+else
+    echo "  (本次更新跳过了数据库备份)"
+fi

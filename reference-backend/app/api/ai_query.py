@@ -110,7 +110,6 @@ def search_servers(
     sn: str = Query(default="", description="序列号精确匹配"),
     ip: str = Query(default="", description="IP 地址匹配（业务IP或管理IP）"),
     manufacturer: str = Query(default="", description="厂商过滤，支持中英文（戴尔/Dell, 惠普/HPE, 联想/Lenovo, 浪潮/Inspur, 超微/Supermicro, 华为/Huawei, 超聚变/XFusion）"),
-    limit: int = Query(default=20, ge=1, le=100, description="返回条数上限"),
     db: Session = Depends(get_db),
 ):
     """搜索主机资产。Aily use this when user asks about servers by name,
@@ -152,7 +151,7 @@ def search_servers(
     if ip:
         q = q.filter((Server.mgmt_ip == ip) | (Server.biz_ip == ip))
 
-    rows = q.order_by(Server.hostname).limit(limit).all()
+    rows = q.order_by(Server.hostname).all()
     return {
         "count": len(rows),
         "items": [_server_brief(r) for r in rows],
@@ -204,7 +203,6 @@ def search_parts(
     model: str = Query(default="", description="型号过滤"),
     spec: str = Query(default="", description="规格过滤，如 2TB SSD"),
     status: str = Query(default="", description="状态: in_stock, allocated, in_use, scrapped"),
-    limit: int = Query(default=20, ge=1, le=100, description="返回条数上限"),
     db: Session = Depends(get_db),
 ):
     """搜索备件库存。Aily use this when user asks about spare parts,
@@ -231,7 +229,7 @@ def search_parts(
     if status:
         q = q.filter(Part.status == status)
 
-    rows = q.order_by(Part.category, Part.brand, Part.model).limit(limit).all()
+    rows = q.order_by(Part.category, Part.brand, Part.model).all()
     return {
         "count": len(rows),
         "items": [_part_brief(r) for r in rows],
@@ -496,7 +494,6 @@ def search_terminal_assets(
     manufacturer: str = Query(default="", description="厂商过滤: Dell, HP, Lenovo, Apple, Huawei, ASUS, Acer, Microsoft"),
     status: str = Query(default="", description="状态: online, offline, maintenance, retired"),
     os: str = Query(default="", description="操作系统过滤"),
-    limit: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
 ):
     """搜索终端资产。Aily/Dify use this when user asks about terminal
@@ -524,7 +521,7 @@ def search_terminal_assets(
     if os:
         q = q.filter(TerminalAsset.os == os)
 
-    rows = q.order_by(TerminalAsset.hostname).limit(limit).all()
+    rows = q.order_by(TerminalAsset.hostname).all()
     return {
         "count": len(rows),
         "items": [_terminal_asset_brief(w) for w in rows],

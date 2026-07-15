@@ -44,6 +44,8 @@ ok "前端构建完成"
 log "打包 $OUTPUT ..."
 
 # 离线 wheels 已移除，私有化环境通过 pip install 在线安装 MCP 依赖
+# 打包前清理本地环境产物（.venv 131M+ 不能打进离线包）
+rm -rf reference-backend/.venv reference-backend/__pycache__ reference-backend/.pytest_cache
 
 zip -r "$OUTPUT" \
     src/ \
@@ -57,7 +59,8 @@ zip -r "$OUTPUT" \
     vite.config.ts tsconfig.json tsconfig.app.json tsconfig.node.json \
     tailwind.config.ts postcss.config.js components.json eslint.config.js \
     update.sh \
-    -x "*/node_modules/*" "*/.git/*" "*/backups/*" "*/__pycache__/*" "*.pyc"
+    -x "*/node_modules/*" "*/.git/*" "*/backups/*" "*/__pycache__/*" "*.pyc" \
+       "*/.venv/*" "*/.pytest_cache/*"
 
 ok "打包完成: $OUTPUT ($(du -h "$OUTPUT" | cut -f1))"
 echo ""
