@@ -209,6 +209,8 @@ def _simulate(server: Server) -> dict:
         ),
         "memoryModules": [],
         "drives": drives,
+        "processors": [],
+        "storageControllers": [],
         "memorySlots": None,
         "diskSlots": (
             {"total": server.disk_slot_count, "used": disk_count}
@@ -677,6 +679,75 @@ async def _redfish_storage_drives(
     except Exception:
         pass  # Storage isn't critical — keep returning what we have
     return all_drives or drives
+
+
+async def _redfish_storage_controllers_health(
+    client: httpx.AsyncClient, base: str, system_path: str
+) -> list[dict]:
+    """Fetch Storage / RAID controller health from
+    ``/Systems/{id}/Storage`` members."""
+    controllers: list[dict] = []
+    try:
+        storage_coll = await client.get(f"{base}/{system_path}/Storage")
+    except Exception:
+        return controllers
+    if storage_coll.status_code != 200:
+        return controllers
+    members = (storage_coll.json() or {}).get("Members") or []
+
+    async def _get_ctrl(m):
+        try:
+            resp = await client.get(f"{base}{m['@odata.id']}")
+            if resp.status_code != 200:
+                return None
+            c = resp.json() or {}
+            return {
+                "name": c.get("Name") or c.get("Id") or "?",
+                "model": c.get("Model") or "—",
+                "status": ((c.get("Status") or {}).get("Health")) or "OK",
+            }
+        except Exception:
+            return None
+
+    results = await asyncio.gather(
+        *[_get_ctrl(m) for m in members], return_exceptions=True
+    )
+    controllers = [r for r in results if isinstance(r, dict)]
+    return controllers
+
+
+async def _redfish_processors_health(
+    client: httpx.AsyncClient, base: str, system_path: str
+) -> list[dict]:
+    """Fetch processor health from ``/Systems/{id}/Processors`` members."""
+    procs: list[dict] = []
+    try:
+        proc_coll = await client.get(f"{base}/{system_path}/Processors")
+    except Exception:
+        return procs
+    if proc_coll.status_code != 200:
+        return procs
+    members = (proc_coll.json() or {}).get("Members") or []
+
+    async def _get_proc(m):
+        try:
+            resp = await client.get(f"{base}{m['@odata.id']}")
+            if resp.status_code != 200:
+                return None
+            p = resp.json() or {}
+            return {
+                "name": p.get("Name") or p.get("Id") or "?",
+                "model": p.get("Model") or "—",
+                "status": ((p.get("Status") or {}).get("Health")) or "OK",
+            }
+        except Exception:
+            return None
+
+    results = await asyncio.gather(
+        *[_get_proc(m) for m in members], return_exceptions=True
+    )
+    procs = [r for r in results if isinstance(r, dict)]
+    return procs
 
 
 async def _redfish_storage_modern(
@@ -1207,10 +1278,16 @@ async def _collect_redfish(server: Server) -> dict | None:
                     backplane_info = await slot_strategy.get_disk_backplane_info(
                         client, base, chassis_path,
                     )
+                    controllers = await _redfish_storage_controllers_health(
+                        client, base, system_path,
+                    )
+                    processors = await _redfish_processors_health(
+                        client, base, system_path,
+                    )
                 else:
                     thermal_res, power_res, system_res, drives, mem_modules, \
                         logs, memory_slot_total, disk_slot_total, \
-                        backplane_info = (
+                        backplane_info, controllers, processors = (
                         await asyncio.gather(
                             client.get(f"{base}/{chassis_path}/Thermal"),
                             client.get(f"{base}/{chassis_path}/Power"),
@@ -1230,6 +1307,12 @@ async def _collect_redfish(server: Server) -> dict | None:
                             ),
                             slot_strategy.get_disk_backplane_info(
                                 client, base, chassis_path,
+                            ),
+                            _redfish_storage_controllers_health(
+                                client, base, system_path,
+                            ),
+                            _redfish_processors_health(
+                                client, base, system_path,
                             ),
                         )
                     )
@@ -1341,6 +1424,8 @@ async def _collect_redfish(server: Server) -> dict | None:
                     "drives": drives or None,
                     "memorySlots": memory_slots,
                     "diskSlots": disk_slots,
+                    "processors": processors or None,
+                    "storageControllers": controllers or None,
                     "recentLogs": logs or None,
                 }
             finally:

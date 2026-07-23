@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError, DataError, ProgrammingError
 from app.api import ai_query, auth_users, feishu, parts, servers, terminal_assets
 from app.db.base import SessionLocal
 from app.db.models import Server
+from app.exporters import redfish_exporter
 from app.services import bmc as bmc_svc
 from app.settings import settings
 
@@ -85,9 +86,12 @@ async def lifespan(_app: FastAPI):
             id="bmc-poll",
         )
         scheduler.start()
+    # Start background Redfish refresh for the Prometheus exporter
+    redfish_exporter._spawn_refresh()
     yield
     if scheduler.running:
         scheduler.shutdown(wait=False)
+    await redfish_exporter.stop()
 
 
 app = FastAPI(title="CMDB Reference API", version="0.1.0", lifespan=lifespan)
@@ -128,3 +132,4 @@ app.include_router(parts.router, prefix="/api")
 app.include_router(terminal_assets.router, prefix="/api")
 app.include_router(ai_query.router, prefix="/api")
 app.include_router(feishu.router, prefix="/api")
+app.include_router(redfish_exporter.router)  # /metrics/redfish — no /api prefix

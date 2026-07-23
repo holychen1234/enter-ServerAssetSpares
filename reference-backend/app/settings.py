@@ -21,6 +21,11 @@ class Settings(BaseSettings):
 
     ai_api_key: str = ""
 
+    # ── Redfish Prometheus exporter ──
+    redfish_exporter_interval_seconds: int = 300  # background refresh cadence
+    redfish_exporter_batch_size: int = 10         # max concurrent BMC polls per round
+    redfish_exporter_token: str = ""               # optional access token for /metrics/redfish
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     @property
