@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     redfish_exporter_interval_seconds: int = 300  # background refresh cadence
     redfish_exporter_batch_size: int = 10         # max concurrent BMC polls per round
     redfish_exporter_token: str = ""               # optional access token for /metrics/redfish
+    redfish_exporter_scrape_timeout: int = 60      # per-server timeout (keeps semaphore slots turning over)
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

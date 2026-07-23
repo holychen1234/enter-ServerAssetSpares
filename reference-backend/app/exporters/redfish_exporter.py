@@ -193,12 +193,32 @@ def _format_metrics() -> str:
 
 
 async def _refresh_one(s: Server):
-    """Poll one server and update its cache entry."""
+    """Poll one server and update its cache entry.
+
+    Uses its own 60 s timeout so an unreachable BMC cannot hog
+    a semaphore slot for the full ``get_status`` vendor timeout
+    (which can be 70–150 s depending on manufacturer).
+    """
     try:
-        status = await bmc_svc.get_status(s, force_refresh=True)
+        status = await asyncio.wait_for(
+            bmc_svc.get_status(s, force_refresh=True),
+            timeout=settings.redfish_exporter_scrape_timeout,
+        )
         # Stash labels in the payload so the formatter doesn't need a DB connection
         status["__labels__"] = _server_labels(s)
         _cache[s.id] = _CacheEntry(payload=status, ts=time.time(), ok=True)
+    except asyncio.TimeoutError:
+        _log.warning(
+            "refresh timed out for %s (%s) after %ds",
+            s.hostname, s.mgmt_ip, settings.redfish_exporter_scrape_timeout,
+        )
+        old = _cache.get(s.id)
+        _cache[s.id] = _CacheEntry(
+            payload=old.payload if (old and old.ok) else {"__labels__": _server_labels(s)},
+            ts=time.time(),
+            ok=False,
+            error=f"timeout after {settings.redfish_exporter_scrape_timeout}s",
+        )
     except Exception:
         _log.warning("refresh failed for %s (%s)", s.hostname, s.mgmt_ip, exc_info=True)
         old = _cache.get(s.id)
