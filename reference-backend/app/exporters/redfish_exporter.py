@@ -166,7 +166,7 @@ def _format_metrics() -> str:
                 f'{labels},'
                 f'slot="{_prom_label(d.get("name"))}",'
                 f'model="{_prom_label(d.get("model"))}",'
-                f'sn="{_prom_label(d.get("sn"))}",'
+                f'sn_drive="{_prom_label(d.get("sn"))}",'
                 f'media="{_prom_label(d.get("mediaType"))}"'
             )
             lines.append(
