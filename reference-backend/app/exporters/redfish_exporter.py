@@ -192,17 +192,31 @@ def _format_metrics() -> str:
 # ── Background refresh loop ──────────────────────────────────────
 
 
+def _vendor_timeout(manufacturer: str | None) -> float:
+    """Return the timeout that matches what ``get_status`` uses internally.
+
+    The exporter's outer ``wait_for`` must be >= the inner timeout in
+    ``get_status``, otherwise the exporter always cancels the BMC poll
+    before it can complete.  We use the same formula as ``get_status``
+    plus a 10 s safety margin.
+    """
+    base = settings.redfish_timeout_seconds + 20   # 80 s default — covers 70 s inner
+    if manufacturer and "inspur" in manufacturer.lower():
+        base = max(base, 160)                       # Inspur needs ≥ 150 s
+    return base
+
+
 async def _refresh_one(s: Server):
     """Poll one server and update its cache entry.
 
-    Uses its own 60 s timeout so an unreachable BMC cannot hog
-    a semaphore slot for the full ``get_status`` vendor timeout
-    (which can be 70–150 s depending on manufacturer).
+    The timeout is vendor-aware so the exporter doesn't cancel a BMC
+    poll that would have succeeded given a little more time.
     """
+    timeout = _vendor_timeout(s.manufacturer)
     try:
         status = await asyncio.wait_for(
             bmc_svc.get_status(s, force_refresh=True),
-            timeout=settings.redfish_exporter_scrape_timeout,
+            timeout=timeout,
         )
         # Stash labels in the payload so the formatter doesn't need a DB connection
         status["__labels__"] = _server_labels(s)
@@ -210,14 +224,14 @@ async def _refresh_one(s: Server):
     except asyncio.TimeoutError:
         _log.warning(
             "refresh timed out for %s (%s) after %ds",
-            s.hostname, s.mgmt_ip, settings.redfish_exporter_scrape_timeout,
+            s.hostname, s.mgmt_ip, timeout,
         )
         old = _cache.get(s.id)
         _cache[s.id] = _CacheEntry(
             payload=old.payload if (old and old.ok) else {"__labels__": _server_labels(s)},
             ts=time.time(),
             ok=False,
-            error=f"timeout after {settings.redfish_exporter_scrape_timeout}s",
+            error=f"timeout after {timeout:.0f}s",
         )
     except Exception:
         _log.warning("refresh failed for %s (%s)", s.hostname, s.mgmt_ip, exc_info=True)

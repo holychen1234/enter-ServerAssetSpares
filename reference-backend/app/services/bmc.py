@@ -823,11 +823,23 @@ async def _redfish_storage_modern(
         if r.status_code != 200:
             return None
         d = r.json() or {}
+        # Skip absent / empty bays — Dell iDRAC (and others) report
+        # unpopulated slots with Status.State == "Absent" and no model,
+        # SN, or capacity.  Including them creates phantom "disks" that
+        # look like anomalies in the UI and Prometheus metrics.
+        state = (d.get("Status") or {}).get("State")
+        if state == "Absent":
+            return None
+        model = d.get("Model")
+        sn = d.get("SerialNumber")
+        cap_gb = _parse_drive_capacity_gb(d)
+        if not model and not sn and cap_gb == 0:
+            return None
         return {
             "name": d.get("Name") or d.get("Id") or "?",
-            "model": d.get("Model") or "—",
-            "sn": d.get("SerialNumber") or None,
-            "capacityGB": _parse_drive_capacity_gb(d),
+            "model": model or "—",
+            "sn": sn or None,
+            "capacityGB": cap_gb,
             "mediaType": d.get("MediaType") or "—",
             "status": ((d.get("Status") or {}).get("Health")) or "OK",
         }
@@ -863,12 +875,20 @@ async def _redfish_storage_simple(
             continue
         ss: dict = r.json() or {}
         for i, dev in enumerate(ss.get("Devices") or []):
+            # Skip absent / empty bays
+            if ((dev.get("Status") or {}).get("State")) == "Absent":
+                continue
+            model = dev.get("Model")
+            sn = dev.get("SerialNumber")
+            cap_gb = _parse_drive_capacity_gb(dev)
+            if not model and not sn and cap_gb == 0:
+                continue
             drives.append(
                 {
                     "name": dev.get("Name") or f"Disk.Bay.{i+1}",
-                    "model": dev.get("Model") or "—",
-                    "sn": dev.get("SerialNumber") or None,
-                    "capacityGB": _parse_drive_capacity_gb(dev),
+                    "model": model or "—",
+                    "sn": sn or None,
+                    "capacityGB": cap_gb,
                     "mediaType": "—",
                     "status": ((dev.get("Status") or {}).get("Health")) or "OK",
                 }
@@ -902,6 +922,10 @@ async def _redfish_chassis_drives(
             if dr.status_code != 200:
                 continue
             d = dr.json() or {}
+            # Skip absent / empty bays
+            state = (d.get("Status") or {}).get("State")
+            if state == "Absent":
+                continue
             model = d.get("Model")
             sn = d.get("SerialNumber")
             cap_gb = _parse_drive_capacity_gb(d)
@@ -971,11 +995,20 @@ async def _redfish_storage_deep(
                 if dr.status_code != 200:
                     continue
                 d = dr.json() or {}
+                # Skip absent / empty bays
+                state = (d.get("Status") or {}).get("State")
+                if state == "Absent":
+                    continue
+                model = d.get("Model")
+                sn = d.get("SerialNumber")
+                cap_gb = _parse_drive_capacity_gb(d)
+                if not model and not sn and cap_gb == 0:
+                    continue
                 found.append({
                     "name": d.get("Name") or d.get("Id") or "?",
-                    "model": d.get("Model") or "—",
-                    "sn": d.get("SerialNumber") or None,
-                    "capacityGB": _parse_drive_capacity_gb(d),
+                    "model": model or "—",
+                    "sn": sn or None,
+                    "capacityGB": cap_gb,
                     "mediaType": d.get("MediaType") or "—",
                     "status": ((d.get("Status") or {}).get("Health")) or "OK",
                 })
@@ -999,6 +1032,10 @@ async def _redfish_storage_deep(
                         if dr.status_code != 200:
                             continue
                         d = dr.json() or {}
+                        # Skip absent / empty bays
+                        state = (d.get("Status") or {}).get("State")
+                        if state == "Absent":
+                            continue
                         model = d.get("Model")
                         sn = d.get("SerialNumber")
                         cap_gb = _parse_drive_capacity_gb(d)

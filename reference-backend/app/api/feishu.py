@@ -59,6 +59,7 @@ def sync_part_item(
     *time*, and *message* back to the row's system-managed columns.
     """
     try:
+        logger.info("Feishu /sync-part-item raw payload: %s", body)
         return sync_svc.sync_part_item(db, body)
     except Exception:
         logger.exception("Feishu /sync-part-item unexpected error")

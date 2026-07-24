@@ -23,8 +23,8 @@ logger = logging.getLogger(__name__)
 
 CATEGORY_MAP: dict[str, str] = dict(
     zip(
-        ["硬盘", "内存", "网卡", "光模块", "其他"],
-        ["disk", "memory", "nic", "optical", "other"],
+        ["硬盘", "内存", "网卡", "光模块", "光转电模块", "其他"],
+        ["disk", "memory", "nic", "optical", "optical", "other"],
     )
 )
 
@@ -79,12 +79,45 @@ BRANDS_BY_CATEGORY: dict[str, set[str]] = dict(
 # ── Helpers ──────────────────────────────────────────────────────────
 
 
+def _normalize_field(val: Any) -> str:
+    """Convert Feishu field values to a plain string.
+
+    Feishu multi-dimensional table single/multi-select columns may
+    serialise the value as a list (e.g. ``["硬盘"]``) or an object
+    (e.g. ``{"text": "硬盘"}``) instead of a plain string.  This helper
+    extracts the first meaningful text regardless of the shape.
+    """
+    if isinstance(val, str):
+        return val
+    if isinstance(val, (list, tuple)):
+        for item in val:
+            s = _normalize_field(item)
+            if s:
+                return s
+        return ""
+    if isinstance(val, dict):
+        # Try common keys: text, value, name, label
+        for k in ("text", "value", "name", "label"):
+            v = val.get(k)
+            if isinstance(v, str) and v.strip():
+                return v
+        # Last resort: first string value in the dict
+        for v in val.values():
+            if isinstance(v, str) and v.strip():
+                return v
+        return ""
+    if val is None:
+        return ""
+    return str(val)
+
+
 def _validate_required(payload: dict, *fields: str) -> str | None:
     """Return an error message if any *fields* is missing or empty, else None."""
     for f in fields:
-        val = payload.get(f)
-        if not isinstance(val, str) or not val.strip():
-            return f"缺少必填字段: {f}"
+        raw = payload.get(f)
+        val = _normalize_field(raw)
+        if not val.strip():
+            return f"缺少必填字段: {f}（收到: {raw!r}）"
     return None
 
 
@@ -118,9 +151,9 @@ def _find_or_create_part(
         spec=spec,
         sn=None,
         stock=0,
-        safety_stock=int(payload.get("安全库存", 0) or 0),
-        unit=UNIT_MAP.get(payload.get("单位", "块"), "块"),
-        location=payload.get("存放位置", "") or "",
+        safety_stock=int(_normalize_field(payload.get("安全库存")) or 0),
+        unit=UNIT_MAP.get(_normalize_field(payload.get("单位")), "块") or "块",
+        location=_normalize_field(payload.get("存放位置")) or "",
         status="in_stock",
         remark=None,
     )
@@ -162,11 +195,11 @@ def sync_part_item(db: Session, payload: dict) -> dict[str, Any]:
             "message": err,
         }
 
-    sn: str = payload["sn"].strip()
-    category_zh: str = payload["category"].strip()
-    brand: str = payload["brand"].strip()
-    model: str = payload["model"].strip()
-    spec: str = payload["spec"].strip()
+    sn: str = _normalize_field(payload.get("sn")).strip()
+    category_zh: str = _normalize_field(payload.get("category")).strip()
+    brand: str = _normalize_field(payload.get("brand")).strip()
+    model: str = _normalize_field(payload.get("model")).strip()
+    spec: str = _normalize_field(payload.get("spec")).strip()
 
     # Map category
     category_en = CATEGORY_MAP.get(category_zh)
@@ -209,14 +242,14 @@ def sync_part_item(db: Session, payload: dict) -> dict[str, Any]:
             id=str(uuid.uuid4()),
             part_id=part.id,
             sn=sn,
-            location=payload.get("存放位置") or part.location,
+            location=_normalize_field(payload.get("存放位置")) or part.location,
             status="in_stock",
-            remark=payload.get("备注"),
+            remark=_normalize_field(payload.get("备注")),
         )
         db.add(item)
 
-        operator = payload.get("操作人") or "feishu-sync"
-        reason = payload.get("入库原因") or "飞书多维表格同步入库"
+        operator = _normalize_field(payload.get("操作人")) or "feishu-sync"
+        reason = _normalize_field(payload.get("入库原因")) or "飞书多维表格同步入库"
 
         mv = StockMovement(
             id=str(uuid.uuid4()),
@@ -249,11 +282,11 @@ def sync_part_item(db: Session, payload: dict) -> dict[str, Any]:
         # ── Existing item: update metadata ──
         item.part_id = part.id
 
-        loc = payload.get("存放位置")
+        loc = _normalize_field(payload.get("存放位置"))
         if loc:
             item.location = loc
 
-        rmk = payload.get("备注")
+        rmk = _normalize_field(payload.get("备注"))
         if rmk:
             item.remark = rmk
 
@@ -295,12 +328,12 @@ def sync_outbound(db: Session, payload: dict) -> dict[str, Any]:
             "message": err,
         }
 
-    sn: str = payload["sn"].strip()
-    operation_zh: str = payload["operationType"].strip()
-    operator: str = payload["operator"].strip()
-    reason: str = payload["reason"].strip()
-    target_server: str = (payload.get("targetServer") or "").strip()
-    remark: str = (payload.get("remark") or "").strip()
+    sn: str = _normalize_field(payload.get("sn")).strip()
+    operation_zh: str = _normalize_field(payload.get("operationType")).strip()
+    operator: str = _normalize_field(payload.get("operator")).strip()
+    reason: str = _normalize_field(payload.get("reason")).strip()
+    target_server: str = _normalize_field(payload.get("targetServer")).strip()
+    remark: str = _normalize_field(payload.get("remark")).strip()
 
     # Map operation type
     operation_en = OPERATION_MAP.get(operation_zh)
