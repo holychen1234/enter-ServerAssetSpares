@@ -33,6 +33,7 @@ export const SERVER_COLUMNS = [
   { key: "owner", label: "负责人", required: false, example: "张三" },
   { key: "purchaseDate", label: "采购日期", required: false, example: "2024-01-15" },
   { key: "warrantyEnd", label: "保修截止", required: false, example: "2027-01-15" },
+  { key: "diskInfo", label: "硬盘信息", required: false, example: "SSD 960GB ×4, HDD 8TB ×2" },
   { key: "tags", label: "标签", required: false, example: "生产;核心" },
   { key: "remark", label: "备注", required: false, example: "" },
 ];
@@ -105,6 +106,7 @@ function pickExportValue(s: Server, key: string): string {
     case "owner": return s.owner;
     case "purchaseDate": return s.purchaseDate;
     case "warrantyEnd": return s.warrantyEnd;
+    case "diskInfo": return s.diskInfo ?? "";
     case "tags": return s.tags.join(";");
     case "remark": return s.remark ?? "";
     default: return "";

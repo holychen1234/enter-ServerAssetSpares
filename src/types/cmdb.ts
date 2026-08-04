@@ -36,6 +36,8 @@ export interface Server {
    *  0 means "not configured" (needed for Inspur servers where Redfish
    *  cannot auto-detect the bay count). */
   diskSlotCount: number;
+  /** Human-readable drive summary from BMC snapshot, e.g. "SSD 960GB ×6". */
+  diskInfo?: string;
   location: ServerLocation;
   mgmtIp: string;
   bizIp: string;

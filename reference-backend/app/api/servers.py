@@ -1,16 +1,97 @@
 import uuid
 
 from fastapi import APIRouter, Body, Depends, HTTPException
+from sqlalchemy import and_, func
 from sqlalchemy.exc import IntegrityError, DataError, ProgrammingError
 from sqlalchemy.orm import Session
 
 from app.api.serializers import item_to_dict, server_to_dict
 from app.auth import get_current_user, require_writer
 from app.db.base import get_db
-from app.db.models import AuditLog, Part, PartItem, Profile, Server
+from app.db.models import AuditLog, BmcSnapshot, Part, PartItem, Profile, Server
 from app.services import bmc as bmc_svc
 
 router = APIRouter()
+
+
+# ── Drive summary helpers ──────────────────────────────────────────
+
+
+def _build_drive_summary(drives_json: list | None) -> str:
+    """Aggregate BmcSnapshot.drives JSON into a human-readable summary.
+
+    Returns a string like ``SSD 960GB ×6`` or
+    ``SSD 3.84TB ×4, NVMe 1.92TB ×2``.  Returns ``""`` when there is
+    no snapshot or the drives array is empty.
+    """
+    if not drives_json:
+        return ""
+
+    # Only count real drives — a drive that has a model, serial number,
+    # or positive capacity is considered physically present.
+    real = [
+        d
+        for d in drives_json
+        if (d.get("model") and d.get("model") != "—")
+        or d.get("sn")
+        or (d.get("capacityGB") or 0) > 0
+    ]
+    if not real:
+        return ""
+
+    # Group by (mediaType, capacityGB) and count.
+    groups: dict[tuple[str, int], int] = {}
+    for d in real:
+        media = (d.get("mediaType") or "—").strip()
+        cap = d.get("capacityGB", 0) or 0
+        key = (media, cap)
+        groups[key] = groups.get(key, 0) + 1
+
+    parts: list[str] = []
+    for (media, cap), count in sorted(groups.items()):
+        if cap >= 1000:
+            tb = cap / 1000
+            if tb == int(tb):
+                cap_str = f"{int(tb)}TB"
+            else:
+                cap_str = f"{tb:.2f}TB"
+        else:
+            cap_str = f"{cap}GB"
+        parts.append(f"{media} {cap_str} ×{count}")
+
+    return ", ".join(parts)
+
+
+def _get_latest_snapshots_map(
+    db: Session, server_ids: list[str]
+) -> dict[str, BmcSnapshot]:
+    """Return a ``{server_id: latest_snapshot}`` map for the given IDs."""
+    if not server_ids:
+        return {}
+
+    sub = (
+        db.query(
+            BmcSnapshot.server_id,
+            func.max(BmcSnapshot.collected_at).label("max_ts"),
+        )
+        .filter(BmcSnapshot.server_id.in_(server_ids))
+        .group_by(BmcSnapshot.server_id)
+        .subquery()
+    )
+
+    rows = (
+        db.query(BmcSnapshot)
+        .join(
+            sub,
+            and_(
+                BmcSnapshot.server_id == sub.c.server_id,
+                BmcSnapshot.collected_at == sub.c.max_ts,
+            ),
+        )
+        .all()
+    )
+
+    return {r.server_id: r for r in rows}
 
 
 def _apply_payload(s: Server, body: dict):
@@ -56,7 +137,17 @@ def list_servers(
     db: Session = Depends(get_db), _: Profile = Depends(get_current_user)
 ):
     rows = db.query(Server).order_by(Server.created_at.desc()).all()
-    return [server_to_dict(r) for r in rows]
+    server_ids = [r.id for r in rows]
+    snap_map = _get_latest_snapshots_map(db, server_ids)
+    return [
+        server_to_dict(
+            r,
+            drive_summary=_build_drive_summary(
+                snap_map[r.id].drives if r.id in snap_map else None
+            ),
+        )
+        for r in rows
+    ]
 
 
 @router.post("/servers")
@@ -127,7 +218,13 @@ def get_server(
     s = db.get(Server, sid)
     if not s:
         raise HTTPException(404, "server not found")
-    return server_to_dict(s)
+    snap_map = _get_latest_snapshots_map(db, [sid])
+    return server_to_dict(
+        s,
+        drive_summary=_build_drive_summary(
+            snap_map[sid].drives if sid in snap_map else None
+        ),
+    )
 
 
 @router.patch("/servers/{sid}")

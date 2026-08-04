@@ -13,7 +13,7 @@ def _iso(dt: datetime | None) -> str:
     return dt.isoformat()
 
 
-def server_to_dict(s: Server) -> dict:
+def server_to_dict(s: Server, *, drive_summary: str = "") -> dict:
     return {
         "id": s.id,
         "hostname": s.hostname,
@@ -26,6 +26,7 @@ def server_to_dict(s: Server) -> dict:
         "memoryGB": s.memory_gb,
         "diskCount": s.disk_count,
         "diskSlotCount": s.disk_slot_count,
+        "diskInfo": drive_summary,
         "location": {
             "idc": s.idc,
             "rack": s.rack,
