@@ -352,6 +352,31 @@ def sync_outbound(db: Session, payload: dict) -> dict[str, Any]:
         db.query(PartItem).filter(PartItem.sn == sn).first()
     )
     if not item:
+        # ── Scrap for parts never tracked in CMDB (e.g. pre-installed
+        #     server disks) — accept it, audit-log it, but do NOT create
+        #     a Part / PartItem so the scrap doesn't pollute the library.
+        if operation_en == "scrap":
+            db.add(
+                AuditLog(
+                    id=str(uuid.uuid4()),
+                    actor=operator,
+                    action="inventory.scrap",
+                    target=f"sn:{sn}",
+                    detail=f"报废未入库备件 (SN={sn}) — {reason}"
+                    + (f" / 飞书备注: {remark}" if remark else ""),
+                    level="info",
+                )
+            )
+            db.commit()
+            return {
+                "status": "success",
+                "movementId": None,
+                "cmdbItemId": None,
+                "oldStatus": None,
+                "message": f"SN={sn} 未在备件库中，已记录报废审计日志（未关联备件库）",
+            }
+
+        # ── Outbound: PartItem is mandatory ──
         return {
             "status": "failed",
             "movementId": None,
