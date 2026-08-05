@@ -12,6 +12,14 @@ import { BmcLiveCard } from "@/components/cmdb/BmcLiveCard";
 import { ArrowLeft, Server as ServerIcon, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 
+const CAT_LABEL: Record<string, string> = {
+  disk: "硬盘",
+  memory: "内存",
+  nic: "网卡",
+  optical: "光模块",
+  other: "其他",
+};
+
 export default function ServerDetail() {
   const { id = "" } = useParams();
   const navigate = useNavigate();

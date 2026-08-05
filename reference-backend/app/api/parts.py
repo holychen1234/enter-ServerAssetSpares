@@ -132,17 +132,23 @@ def update_part(
     if not p:
         raise HTTPException(404, "part not found")
     # stock is derived from PartItem count — ignore if caller sends it
-    allowed = (
-        "category", "brand", "model", "spec", "sn",
-        "safetyStock", "unit", "location", "status", "remark",
-    )
-    for key in allowed:
-        camel = key  # safetyStock → safetyStock (it's camelCase in the JSON body)
-        attr = {
-            "safetyStock": "safety_stock",
-        }.get(key, key)
-        if camel in body and body[camel] is not None:
-            setattr(p, attr, body[camel])
+    # Explicit camelCase → snake_case mapping so the relationship between
+    # the JSON body keys and ORM attributes is unambiguous.
+    field_map = {
+        "category": "category",
+        "brand": "brand",
+        "model": "model",
+        "spec": "spec",
+        "sn": "sn",
+        "safetyStock": "safety_stock",
+        "unit": "unit",
+        "location": "location",
+        "status": "status",
+        "remark": "remark",
+    }
+    for json_key, attr in field_map.items():
+        if json_key in body and body[json_key] is not None:
+            setattr(p, attr, body[json_key])
     db.add(
         AuditLog(
             id=str(uuid.uuid4()),

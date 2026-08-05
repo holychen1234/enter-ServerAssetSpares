@@ -134,18 +134,30 @@ export function MovementForm({ open, defaultType, parts, servers, onClose, onSub
       return;
     }
 
-    if (isPerItem) {
+   if (isPerItem) {
+      let ok = 0;
+      const failed: string[] = [];
       for (const itemId of v.partItemIds) {
-        await onSubmit({
-          partId: v.partId,
-          type: v.type,
-          quantity: 1,
-          operator: v.operator,
-          relatedServerId: showServer && v.relatedServerId ? v.relatedServerId : undefined,
-          partItemId: itemId,
-          partItemIds: [],
-          reason: v.reason,
-        });
+        try {
+          await onSubmit({
+            partId: v.partId,
+            type: v.type,
+            quantity: 1,
+            operator: v.operator,
+            relatedServerId: showServer && v.relatedServerId ? v.relatedServerId : undefined,
+            partItemId: itemId,
+            partItemIds: [],
+            reason: v.reason,
+          });
+          ok++;
+        } catch {
+          failed.push(itemId);
+        }
+      }
+      if (failed.length > 0) {
+        throw new Error(
+          `${ok} 件成功，${failed.length} 件失败（单件 ID: ${failed.join(", ").slice(0, 80)}…）`,
+        );
       }
     } else {
       // Inbound: parse SN paste into items array

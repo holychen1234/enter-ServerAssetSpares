@@ -5,6 +5,7 @@ import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import ServerList from "./pages/servers/ServerList";
 import ServerDetail from "./pages/servers/ServerDetail";
+import BmcConsole from "./pages/servers/BmcConsole";
 import TerminalAssetList from "./pages/terminal-assets/TerminalAssetList";
 import TerminalAssetDetail from "./pages/terminal-assets/TerminalAssetDetail";
 
@@ -33,6 +34,7 @@ export const routers = [
       { path: "dashboard", name: "dashboard", element: <Dashboard /> },
       { path: "servers", name: "servers", element: <ServerList /> },
       { path: "servers/:id", name: "server-detail", element: <ServerDetail /> },
+      { path: "servers/:id/console", name: "server-bmc-console", element: <BmcConsole /> },
       { path: "terminal-assets", name: "terminal-assets", element: <TerminalAssetList /> },
       { path: "terminal-assets/:id", name: "terminal-asset-detail", element: <TerminalAssetDetail /> },
 

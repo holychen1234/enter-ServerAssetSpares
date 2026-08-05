@@ -79,23 +79,23 @@ def apply_movement(db: Session, payload, operator: str) -> StockMovement:
         else:
             part_item.status = "allocated"
             part_item.installed_server_id = None
-        part.stock -= 1
     elif payload.type == "return":
         if part_item.status not in ("allocated", "in_use"):
             raise ValueError(f"备件 {part_item.sn or part_item.id} 状态不允许归还")
         part_item.status = "in_stock"
         part_item.installed_server_id = None
-        part.stock += 1
     elif payload.type == "scrap":
         if part_item.status == "scrapped":
             raise ValueError(f"备件 {part_item.sn or part_item.id} 已报废")
         part_item.status = "scrapped"
         part_item.installed_server_id = None
-        if part_item.status != "scrapped":  # already checked above
-            pass
-        _sync_stock(db, part)
     else:
         raise ValueError(f"不支持的操作类型: {payload.type}")
+
+    # Always derive stock from the actual in_stock PartItem count so it
+    # stays consistent even if a PartItem's status was manually changed
+    # via update_part_item before this movement was applied.
+    _sync_stock(db, part)
 
     if part.stock < 0:
         raise ValueError("库存不足")
