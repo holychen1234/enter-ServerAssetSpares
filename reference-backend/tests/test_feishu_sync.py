@@ -379,6 +379,115 @@ class TestSyncOutbound:
         assert result["status"] == "failed"
         assert "不支持的操作类型" in result["message"]
 
+    def test_scrap_without_sn_creates_movement(self, db: Session):
+        """Scrap without an SN creates a StockMovement + AuditLog directly."""
+        payload = {
+            "operationType": "报废",
+            "operator": "张三",
+            "reason": "硬盘故障无法修复",
+            "category": "硬盘",
+            "brand": "Seagate",
+            "model": "ST1000",
+            "spec": "1TB SATA",
+            "remark": "飞书工单 #999",
+        }
+        result = sync_outbound(db, payload)
+
+        assert result["status"] == "success"
+        assert result["movementId"] is not None
+        assert result["cmdbItemId"] is None
+        assert "未关联备件库库存" in result["message"]
+
+        # Verify StockMovement was created
+        mv = db.get(StockMovement, result["movementId"])
+        assert mv is not None
+        assert mv.type == "scrap"
+        assert mv.part_item_id is None  # no PartItem tracking
+        assert mv.quantity == 1
+        assert mv.operator == "张三"
+
+        # Verify Part was created from payload fields
+        part = db.get(Part, mv.part_id)
+        assert part is not None
+        assert part.brand == "Seagate"
+        assert part.model == "ST1000"
+
+        # Verify AuditLog was created
+        log = (
+            db.query(AuditLog)
+            .filter(AuditLog.action == "inventory.scrap")
+            .first()
+        )
+        assert log is not None
+        assert "SN=未提供" in log.detail
+
+    def test_scrap_unknown_sn_creates_movement(self, db: Session):
+        """Scrap with an SN not in the system creates a StockMovement
+        (not just an AuditLog as before)."""
+        payload = {
+            "sn": "GHOST-SN-999",
+            "operationType": "报废",
+            "operator": "李四",
+            "reason": "老旧设备淘汰",
+            "category": "网卡",
+            "brand": "Mellanox",
+            "model": "CX5",
+            "spec": "100GbE",
+            "remark": "批量报废",
+        }
+        result = sync_outbound(db, payload)
+
+        assert result["status"] == "success"
+        assert result["movementId"] is not None
+        assert result["cmdbItemId"] is None
+
+        mv = db.get(StockMovement, result["movementId"])
+        assert mv is not None
+        assert mv.type == "scrap"
+        assert mv.part_item_id is None
+        assert mv.reason == "老旧设备淘汰"
+
+        # AuditLog should mention the SN
+        log = (
+            db.query(AuditLog)
+            .filter(AuditLog.action == "inventory.scrap")
+            .first()
+        )
+        assert log is not None
+        assert "GHOST-SN-999" in log.detail
+
+    def test_scrap_without_sn_minimal_fields(self, db: Session):
+        """Scrap without SN and without brand/model still works
+        (falls back to '未知' brand and '未知' model)."""
+        payload = {
+            "operationType": "报废",
+            "operator": "王五",
+            "reason": "测试最小字段报废",
+        }
+        result = sync_outbound(db, payload)
+
+        assert result["status"] == "success"
+        assert result["movementId"] is not None
+
+        mv = db.get(StockMovement, result["movementId"])
+        assert mv is not None
+        assert mv.type == "scrap"
+
+        part = db.get(Part, mv.part_id)
+        assert part.brand == "未知"
+        assert part.model == "未知"
+
+    def test_outbound_without_sn_fails(self, db: Session):
+        """Outbound without SN returns failed (SN is still required for outbound)."""
+        payload = {
+            "operationType": "出库",
+            "operator": "张三",
+            "reason": "测试",
+        }
+        result = sync_outbound(db, payload)
+        assert result["status"] == "failed"
+        assert "SN" in result["message"]
+
     def test_missing_required_fields(self, db: Session):
         """Missing 'operator' returns failed."""
         payload = {"sn": "any-sn", "operationType": "出库", "reason": "test"}

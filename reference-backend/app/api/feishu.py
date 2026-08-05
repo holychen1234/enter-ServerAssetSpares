@@ -82,11 +82,15 @@ def sync_outbound(
 
     **Expected payload fields (Chinese column names):**
 
-    - ``sn`` (required) — PartItem serial number to operate on
+    - ``sn`` — PartItem serial number (required for 出库; optional for 报废)
     - ``operationType`` (required) — 出库 / 报废
     - ``operator`` (required) — who performed the operation
     - ``reason`` (required) — reason description
     - ``targetServer`` — server hostname (outbound only)
+    - ``category`` — 备件类别，如 硬盘/内存/网卡 (报废且无SN时用于关联Part)
+    - ``brand`` — 品牌 (报废且无SN时用于关联Part)
+    - ``model`` — 型号 (报废且无SN时用于关联Part)
+    - ``spec`` — 规格 (报废且无SN时用于关联Part)
     - ``remark`` — free-text notes
 
     **Response** (always HTTP 200)::

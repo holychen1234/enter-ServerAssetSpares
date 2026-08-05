@@ -317,8 +317,14 @@ def sync_outbound(db: Session, payload: dict) -> dict[str, Any]:
 
     Calls ``inventory.apply_movement`` so all existing validations and stock
     adjustments are reused exactly.
+
+    For **scrap** operations, *sn* is optional — scraps of items never
+    tracked in the spare-parts library are recorded as StockMovement rows
+    (with ``part_item_id=NULL``) so they appear in the outbound/scrap
+    history without polluting the PartItem inventory.
     """
-    err = _validate_required(payload, "sn", "operationType", "operator", "reason")
+    # ── Common required fields (sn checked conditionally below) ──
+    err = _validate_required(payload, "operationType", "operator", "reason")
     if err:
         return {
             "status": "failed",
@@ -347,36 +353,135 @@ def sync_outbound(db: Session, payload: dict) -> dict[str, Any]:
             "message": f"不支持的操作类型: {operation_zh}（支持: {supported}）",
         }
 
-    # Find PartItem by SN
-    item: PartItem | None = (
-        db.query(PartItem).filter(PartItem.sn == sn).first()
-    )
-    if not item:
-        # ── Scrap for parts never tracked in CMDB (e.g. pre-installed
-        #     server disks) — accept it, audit-log it, but do NOT create
-        #     a Part / PartItem so the scrap doesn't pollute the library.
-        if operation_en == "scrap":
-            db.add(
-                AuditLog(
-                    id=str(uuid.uuid4()),
-                    actor=operator,
-                    action="inventory.scrap",
-                    target=f"sn:{sn}",
-                    detail=f"报废未入库备件 (SN={sn}) — {reason}"
-                    + (f" / 飞书备注: {remark}" if remark else ""),
-                    level="info",
-                )
-            )
-            db.commit()
+    # ── Outbound requires SN; scrap does not ──
+    if operation_en == "outbound" and not sn:
+        return {
+            "status": "failed",
+            "movementId": None,
+            "cmdbItemId": None,
+            "oldStatus": None,
+            "message": "出库操作必须提供 SN",
+        }
+
+    # Find PartItem by SN (if SN provided)
+    item: PartItem | None = None
+    if sn:
+        item = db.query(PartItem).filter(PartItem.sn == sn).first()
+
+    # ══════════════════════════════════════════════════════════════════
+    # Path A: PartItem found — existing apply_movement logic
+    # ══════════════════════════════════════════════════════════════════
+    if item:
+        old_status = item.status
+
+        part: Part | None = db.get(Part, item.part_id)
+        if not part:
             return {
-                "status": "success",
+                "status": "failed",
                 "movementId": None,
-                "cmdbItemId": None,
-                "oldStatus": None,
-                "message": f"SN={sn} 未在备件库中，已记录报废审计日志（未关联备件库）",
+                "cmdbItemId": item.id,
+                "oldStatus": STATUS_EN_MAP.get(old_status, old_status),
+                "message": "备件主记录异常，请联系管理员",
             }
 
-        # ── Outbound: PartItem is mandatory ──
+        # Pre-validate
+        if operation_en == "outbound":
+            if item.status != "in_stock":
+                return {
+                    "status": "failed",
+                    "movementId": None,
+                    "cmdbItemId": item.id,
+                    "oldStatus": STATUS_EN_MAP.get(old_status, old_status),
+                    "message": f"备件 {sn} 不在库中（当前状态: {STATUS_EN_MAP.get(item.status, item.status)}），无法出库",
+                }
+        elif operation_en == "scrap":
+            if item.status == "scrapped":
+                return {
+                    "status": "failed",
+                    "movementId": None,
+                    "cmdbItemId": item.id,
+                    "oldStatus": STATUS_EN_MAP.get(old_status, old_status),
+                    "message": f"备件 {sn} 已报废，请勿重复操作",
+                }
+
+        # Resolve target server for outbound
+        related_server_id = None
+        if operation_en == "outbound" and target_server:
+            from sqlalchemy import or_
+
+            server = (
+                db.query(Server)
+                .filter(
+                    or_(
+                        Server.hostname == target_server,
+                        Server.mgmt_ip == target_server,
+                        Server.biz_ip == target_server,
+                    )
+                )
+                .first()
+            )
+            if not server:
+                return {
+                    "status": "failed",
+                    "movementId": None,
+                    "cmdbItemId": item.id,
+                    "oldStatus": STATUS_EN_MAP.get(old_status, old_status),
+                    "message": f"未找到目标服务器: {target_server}（支持按主机名/管理IP/业务IP查找）",
+                }
+            related_server_id = server.id
+
+        # Build _Payload and delegate to inventory.apply_movement
+        _oper = operator
+        _rel_srv = related_server_id
+        _rsn = reason
+
+        class _Payload:
+            part_id = part.id
+            type = operation_en
+            quantity = 1
+            operator = _oper
+            related_server_id = _rel_srv
+            part_item_id = item.id
+            reason = _rsn
+
+        try:
+            mv = inv_svc.apply_movement(db, _Payload, operator)
+        except ValueError as exc:
+            return {
+                "status": "failed",
+                "movementId": None,
+                "cmdbItemId": item.id,
+                "oldStatus": STATUS_EN_MAP.get(old_status, old_status),
+                "message": str(exc),
+            }
+
+        db.add(
+            AuditLog(
+                id=str(uuid.uuid4()),
+                actor=operator,
+                action=f"inventory.{operation_en}",
+                target=f"part:{part.brand} {part.model}",
+                detail=f"Feishu备注: {remark}" if remark else reason,
+                level="info",
+            )
+        )
+
+        db.commit()
+
+        return {
+            "status": "success",
+            "movementId": mv.id,
+            "cmdbItemId": item.id,
+            "oldStatus": STATUS_EN_MAP.get(old_status, old_status),
+            "message": "操作成功",
+        }
+
+    # ══════════════════════════════════════════════════════════════════
+    # Path B: No PartItem found
+    # ══════════════════════════════════════════════════════════════════
+
+    # ── Outbound without PartItem → error ──
+    if operation_en == "outbound":
         return {
             "status": "failed",
             "movementId": None,
@@ -385,100 +490,47 @@ def sync_outbound(db: Session, payload: dict) -> dict[str, Any]:
             "message": f"未找到 SN={sn} 的备件单件",
         }
 
-    old_status = item.status
+    # ── Scrap without PartItem → create StockMovement directly ──
+    # Extract part-identifying fields from the payload so we can
+    # associate the scrap with a Part even though no PartItem exists.
+    category_zh = _normalize_field(payload.get("category")).strip()
+    category_en = CATEGORY_MAP.get(category_zh, "other")
+    brand = _normalize_field(payload.get("brand")).strip()
+    model = _normalize_field(payload.get("model")).strip()
+    spec = _normalize_field(payload.get("spec")).strip()
 
-    part: Part | None = db.get(Part, item.part_id)
-    if not part:
-        return {
-            "status": "failed",
-            "movementId": None,
-            "cmdbItemId": item.id,
-            "oldStatus": STATUS_EN_MAP.get(old_status, old_status),
-            "message": "备件主记录异常，请联系管理员",
-        }
+    # Fall back to sensible defaults when payload omits part fields
+    if not brand:
+        brand = "未知"
+    if not model:
+        model = sn if sn else "未知"
+    if not spec:
+        spec = ""
 
-    # Pre-validate
-    if operation_en == "outbound":
-        if item.status != "in_stock":
-            return {
-                "status": "failed",
-                "movementId": None,
-                "cmdbItemId": item.id,
-                "oldStatus": STATUS_EN_MAP.get(old_status, old_status),
-                "message": f"备件 {sn} 不在库中（当前状态: {STATUS_EN_MAP.get(item.status, item.status)}），无法出库",
-            }
-    elif operation_en == "scrap":
-        if item.status == "scrapped":
-            return {
-                "status": "failed",
-                "movementId": None,
-                "cmdbItemId": item.id,
-                "oldStatus": STATUS_EN_MAP.get(old_status, old_status),
-                "message": f"备件 {sn} 已报废，请勿重复操作",
-            }
+    part = _find_or_create_part(db, brand, model, spec, category_en, payload)
 
-    # Resolve target server for outbound (supports hostname / mgmt_ip / biz_ip)
-    related_server_id = None
-    if operation_en == "outbound" and target_server:
-        from sqlalchemy import or_
+    mv = StockMovement(
+        id=str(uuid.uuid4()),
+        part_id=part.id,
+        part_item_id=None,  # not tracked in PartItem inventory
+        type="scrap",
+        quantity=1,
+        operator=operator,
+        related_server_id=None,
+        reason=reason,
+    )
+    db.add(mv)
 
-        server = (
-            db.query(Server)
-            .filter(
-                or_(
-                    Server.hostname == target_server,
-                    Server.mgmt_ip == target_server,
-                    Server.biz_ip == target_server,
-                )
-            )
-            .first()
-        )
-        if not server:
-            return {
-                "status": "failed",
-                "movementId": None,
-                "cmdbItemId": item.id,
-                "oldStatus": STATUS_EN_MAP.get(old_status, old_status),
-                "message": f"未找到目标服务器: {target_server}（支持按主机名/管理IP/业务IP查找）",
-            }
-        related_server_id = server.id
-
-    # Build _Payload and delegate to inventory.apply_movement
-    # NB: capture locals into temp vars first — Python class-body scope
-    # shadows outer-function names for operator / related_server_id / reason,
-    # so ``operator = operator`` would raise NameError.  (Bug 2)
-    _oper = operator
-    _rel_srv = related_server_id
-    _rsn = reason
-
-    class _Payload:
-        part_id = part.id
-        type = operation_en
-        quantity = 1
-        operator = _oper
-        related_server_id = _rel_srv
-        part_item_id = item.id
-        reason = _rsn
-
-    try:
-        mv = inv_svc.apply_movement(db, _Payload, operator)
-    except ValueError as exc:
-        return {
-            "status": "failed",
-            "movementId": None,
-            "cmdbItemId": item.id,
-            "oldStatus": STATUS_EN_MAP.get(old_status, old_status),
-            "message": str(exc),
-        }
-
+    sn_label = f"SN={sn}" if sn else "SN=未提供"
     db.add(
         AuditLog(
             id=str(uuid.uuid4()),
             actor=operator,
-            action=f"inventory.{operation_en}",
+            action="inventory.scrap",
             target=f"part:{part.brand} {part.model}",
-            detail=f"Feishu备注: {remark}" if remark else reason,
-            level="info",
+            detail=f"报废未入库备件 ({sn_label}) — {reason}"
+            + (f" / 飞书备注: {remark}" if remark else ""),
+            level="warn",
         )
     )
 
@@ -487,7 +539,7 @@ def sync_outbound(db: Session, payload: dict) -> dict[str, Any]:
     return {
         "status": "success",
         "movementId": mv.id,
-        "cmdbItemId": item.id,
-        "oldStatus": STATUS_EN_MAP.get(old_status, old_status),
-        "message": "操作成功",
+        "cmdbItemId": None,
+        "oldStatus": None,
+        "message": "报废记录已创建（未关联备件库库存）",
     }
