@@ -732,30 +732,31 @@ async def _redfish_storage_drives(
         # Path 1: modern Storage schema (Dell iDRAC 9+, Supermicro X11+, etc.)
         primary = await _redfish_storage_modern(client, base, system_path)
         if primary:
-            logger.debug("redfish storage: got %d drives via Path 1 (Storage)", len(primary))
+            logger.info("redfish storage: got %d drives via Path 1 (Storage)", len(primary))
             # Supplement: also try Chassis/Drives for rear-backplane /
             # NVMe system drives that some BMCs only expose at the chassis
             # level (e.g. Inspur rear 2.5" SATA bays, H3C NVMe riser drives).
             supplement = await _redfish_chassis_drives(client, base)
             if supplement:
-                logger.debug("redfish storage: got %d supplemental drives via Path 3 (Chassis/Drives)", len(supplement))
+                logger.info("redfish storage: got %d supplemental drives via Path 3 (Chassis/Drives)", len(supplement))
                 all_drives = _dedup_drives(primary, supplement)
             else:
                 all_drives = primary
             return all_drives
 
         # ── Fallback chain (no drives from Path 1) ──
+        logger.info("redfish storage: Path 1 returned 0 drives, trying fallbacks")
         # Path 2: SimpleStorage (older Dell iDRAC 8, HPE iLO 4)
         drives = await _redfish_storage_simple(client, base, system_path)
         if drives:
-            logger.debug("redfish storage: got %d drives via Path 2 (SimpleStorage)", len(drives))
+            logger.info("redfish storage: got %d drives via Path 2 (SimpleStorage)", len(drives))
             return drives
         # Path 3: Chassis-level Drives (XFusion, H3C, and other vendors where
         # /Systems/X/Storage returns 404 but /Chassis/X/Drives contains the
         # full drive collection).
         drives = await _redfish_chassis_drives(client, base)
         if drives:
-            logger.debug("redfish storage: got %d drives via Path 3 (Chassis/Drives)", len(drives))
+            logger.info("redfish storage: got %d drives via Path 3 (Chassis/Drives)", len(drives))
             return drives
         # Path 4: Deep-drill Storage controllers (Inspur / some H3C). Some
         # BMCs report controllers in /Systems/X/Storage but don't surface
@@ -763,7 +764,9 @@ async def _redfish_storage_drives(
         # controller and try Links.Drives or /Drives sub-path directly.
         drives = await _redfish_storage_deep(client, base, system_path)
         if drives:
-            logger.debug("redfish storage: got %d drives via Path 4 (Storage deep)", len(drives))
+            logger.info("redfish storage: got %d drives via Path 4 (Storage deep)", len(drives))
+        if not drives:
+            logger.info("redfish storage: all 4 paths returned 0 drives for %s", base)
     except Exception:
         pass  # Storage isn't critical — keep returning what we have
     return all_drives or drives
@@ -852,8 +855,14 @@ async def _redfish_storage_modern(
     except Exception:
         return drives
     if storage_coll.status_code != 200:
+        logger.info(
+            "redfish storage: /Storage returned %s for %s",
+            storage_coll.status_code, base,
+        )
         return drives
     members = (storage_coll.json() or {}).get("Members") or []
+    if not members:
+        logger.info("redfish storage: /Storage has no Members for %s", base)
 
     # ── Phase 1: fetch every controller in parallel to collect drive hrefs ──
     async def _controller_drive_hrefs(m) -> list[str]:
