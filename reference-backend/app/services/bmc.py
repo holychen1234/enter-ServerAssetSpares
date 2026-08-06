@@ -1443,13 +1443,35 @@ async def _collect_redfish(server: Server) -> dict | None:
                     )
 
                 if thermal_res.status_code != 200 or system_res.status_code != 200:
-                    logger.warning(
-                        "redfish http error for %s: thermal=%s system=%s",
-                        server.id,
-                        thermal_res.status_code,
-                        system_res.status_code,
-                    )
-                    return None
+                    # 401 = cached session token is stale/invalid.
+                    # Invalidate the cache and retry once with Basic auth.
+                    if (
+                        has_creds
+                        and (thermal_res.status_code == 401 or system_res.status_code == 401)
+                    ):
+                        logger.info(
+                            "redfish 401 for %s — invalidating session, "
+                            "retrying with Basic auth", server.id,
+                        )
+                        _invalidate_session(base)
+                        client.headers.pop("X-Auth-Token", None)
+                        client.auth = (server.bmc_user, server.bmc_password)
+
+                        # Re-fetch the two critical endpoints
+                        thermal_res = await client.get(f"{base}/{chassis_path}/Thermal")
+                        system_res = await client.get(f"{base}/{system_path}")
+
+                    if thermal_res.status_code != 200 or system_res.status_code != 200:
+                        logger.warning(
+                            "redfish http error for %s: thermal=%s system=%s",
+                            server.id,
+                            thermal_res.status_code,
+                            system_res.status_code,
+                        )
+                        return None
+                    # Re-fetch power as well if we just switched to Basic auth
+                    if power_res.status_code != 200 and has_creds:
+                        power_res = await client.get(f"{base}/{chassis_path}/Power")
 
                 thermal: dict[str, Any] = thermal_res.json() or {}
                 system: dict[str, Any] = system_res.json() or {}
@@ -1816,17 +1838,30 @@ def invalidate_cache(server_id: str | None = None) -> None:
 # the cooldown.
 # ---------------------------------------------------------------------------
 _FAILED_HOSTS: dict[str, float] = {}           # ip → next_retry_timestamp
-_COOLDOWN_SECONDS: float = 3600.0 * 3           # 3 hours before retry
+_FAILED_COUNTS: dict[str, int] = {}             # ip → consecutive failure count
+_COOLDOWN_SECONDS: float = 1800.0               # 30 min cooldown after repeated failures
+_COOLDOWN_THRESHOLD = 3                          # set cooldown only after N consecutive failures
 
 
 def _set_cooldown(mgmt_ip: str | None) -> None:
-    if mgmt_ip:
+    """Record a failure; only enter cooldown after N consecutive failures.
+
+    A single transient 503 or ReadTimeout should NOT block the BMC for
+    30 minutes — the next poll cycle should be allowed to retry.
+    Only after repeated failures do we consider the host truly dead.
+    """
+    if not mgmt_ip:
+        return
+    count = _FAILED_COUNTS.get(mgmt_ip, 0) + 1
+    _FAILED_COUNTS[mgmt_ip] = count
+    if count >= _COOLDOWN_THRESHOLD:
         _FAILED_HOSTS[mgmt_ip] = time.time() + _COOLDOWN_SECONDS
 
 
 def _clear_cooldown(mgmt_ip: str | None) -> None:
     if mgmt_ip:
         _FAILED_HOSTS.pop(mgmt_ip, None)
+        _FAILED_COUNTS.pop(mgmt_ip, None)
 
 
 def _in_cooldown(mgmt_ip: str | None) -> bool:

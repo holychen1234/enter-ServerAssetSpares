@@ -87,9 +87,12 @@ async def lifespan(_app: FastAPI):
             "interval",
             seconds=settings.poll_interval_seconds,
             id="bmc-poll",
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=300,
         )
         scheduler.start()
-   # Start background Redfish refresh for the Prometheus exporter
+    # Start background Redfish refresh for the Prometheus exporter
     redfish_exporter._spawn_refresh()
     yield
     if scheduler.running:
