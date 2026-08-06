@@ -998,50 +998,127 @@ async def _redfish_chassis_drives(
 ) -> list[dict]:
     """Discover drives via ``/Chassis/X/Drives``.
 
-    Some vendors (XFusion, H3C, etc.) expose drives at the chassis level
-    instead of under ``/Systems/X/Storage``. The drive schema is the same
-    standard Redfish ``#Drive`` resource so we reuse the same field mapping.
+    Some vendors (XFusion, H3C, Lenovo XCC, etc.) expose drives at the
+    chassis level instead of under ``/Systems/X/Storage``. The drive
+    schema is the same standard Redfish ``#Drive`` resource so we reuse
+    the same field mapping.
+
+    Lenovo XCC in particular has multiple chassis members (e.g. /Chassis/1
+    for the system enclosure and /Chassis/3 for the storage backplane).
+    Drives are only under the backplane member, so we must iterate ALL
+    chassis members instead of just the first one.
     """
     drives: list[dict] = []
-    chassis_path = await _redfish_first_member(client, base, "Chassis")
-    if not chassis_path:
+    # Fetch ALL chassis members — drives may be under any of them
+    # (e.g. Lenovo XCC puts drives under /Chassis/3, not /Chassis/1).
+    chassis_members: list[str] = []
+    try:
+        coll = await client.get(f"{base}/redfish/v1/Chassis")
+        if coll.status_code == 200:
+            for m in (coll.json() or {}).get("Members") or []:
+                href = m.get("@odata.id")
+                if href:
+                    chassis_members.append(href.lstrip("/"))
+    except Exception:
+        pass
+    if not chassis_members:
+        # Fallback: try first member discovery (single-member BMCs)
+        chassis_path = await _redfish_first_member(client, base, "Chassis")
+        if chassis_path:
+            chassis_members = [chassis_path]
+
+    if not chassis_members:
         return drives
     try:
-        coll = await client.get(f"{base}/{chassis_path}/Drives")
-        if coll.status_code != 200:
-            return drives
-        members = (coll.json() or {}).get("Members") or []
-        for m in members:
-            href = m.get("@odata.id")
-            if not href:
+        for chassis_path in chassis_members:
+            coll = await client.get(f"{base}/{chassis_path}/Drives")
+            if coll.status_code != 200:
+                logger.debug(
+                    "redfish chassis drives: %s/Drives returned %s",
+                    chassis_path, coll.status_code,
+                )
+                # Lenovo XCC doesn't expose /Chassis/X/Drives but lists
+                # all drive @odata.id refs under Chassis.Links.Drives.
+                # The drive URLs are standard /Systems/X/Storage/.../Drives/Y
+                # resources, just not discoverable via the Storage collection
+                # (which returns empty Members on older XCC firmware).
+                chassis_resp = await client.get(f"{base}/{chassis_path}")
+                if chassis_resp.status_code == 200:
+                    links_drives = (
+                        (chassis_resp.json() or {})
+                        .get("Links", {})
+                        .get("Drives", [])
+                    )
+                    if links_drives:
+                        logger.info(
+                            "redfish chassis drives: %s/Links.Drives has %d refs",
+                            chassis_path, len(links_drives),
+                        )
+                        for dref in links_drives:
+                            dhref = dref.get("@odata.id") if isinstance(dref, dict) else None
+                            if not dhref:
+                                continue
+                            dr = await client.get(f"{base}{dhref}")
+                            if dr.status_code != 200:
+                                continue
+                            d = dr.json() or {}
+                            state = (d.get("Status") or {}).get("State")
+                            if state == "Absent":
+                                continue
+                            model = d.get("Model")
+                            sn = d.get("SerialNumber")
+                            cap_gb = _parse_drive_capacity_gb(d)
+                            if not model and not sn and cap_gb == 0:
+                                continue
+                            drives.append(
+                                {
+                                    "name": d.get("Name") or d.get("Id") or "?",
+                                    "model": model or "—",
+                                    "sn": sn or None,
+                                    "capacityGB": cap_gb,
+                                    "mediaType": d.get("MediaType") or "—",
+                                    "status": ((d.get("Status") or {}).get("Health")) or "OK",
+                                }
+                            )
                 continue
-            dr = await client.get(f"{base}{href}")
-            if dr.status_code != 200:
+            members = (coll.json() or {}).get("Members") or []
+            if not members:
                 continue
-            d = dr.json() or {}
-            # Skip absent / empty bays
-            state = (d.get("Status") or {}).get("State")
-            if state == "Absent":
-                continue
-            model = d.get("Model")
-            sn = d.get("SerialNumber")
-            cap_gb = _parse_drive_capacity_gb(d)
-            # Skip placeholder entries: if the drive has no Model, no SN
-            # AND zero capacity, it's a stub. But if any one field is
-            # present, keep it — some Inspur BMCs report valid drives
-            # with zero capacity but have a model name.
-            if not model and not sn and cap_gb == 0:
-                continue
-            drives.append(
-                {
-                    "name": d.get("Name") or d.get("Id") or "?",
-                    "model": model or "—",
-                    "sn": sn or None,
-                    "capacityGB": cap_gb,
-                    "mediaType": d.get("MediaType") or "—",
-                    "status": ((d.get("Status") or {}).get("Health")) or "OK",
-                }
+            logger.info(
+                "redfish chassis drives: %s/Drives has %d members",
+                chassis_path, len(members),
             )
+            for m in members:
+                href = m.get("@odata.id")
+                if not href:
+                    continue
+                dr = await client.get(f"{base}{href}")
+                if dr.status_code != 200:
+                    continue
+                d = dr.json() or {}
+                # Skip absent / empty bays
+                state = (d.get("Status") or {}).get("State")
+                if state == "Absent":
+                    continue
+                model = d.get("Model")
+                sn = d.get("SerialNumber")
+                cap_gb = _parse_drive_capacity_gb(d)
+                # Skip placeholder entries: if the drive has no Model, no SN
+                # AND zero capacity, it's a stub. But if any one field is
+                # present, keep it — some Inspur BMCs report valid drives
+                # with zero capacity but have a model name.
+                if not model and not sn and cap_gb == 0:
+                    continue
+                drives.append(
+                    {
+                        "name": d.get("Name") or d.get("Id") or "?",
+                        "model": model or "—",
+                        "sn": sn or None,
+                        "capacityGB": cap_gb,
+                        "mediaType": d.get("MediaType") or "—",
+                        "status": ((d.get("Status") or {}).get("Health")) or "OK",
+                    }
+                )
     except Exception:
         pass
     return drives
