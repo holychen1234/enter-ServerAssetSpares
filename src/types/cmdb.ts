@@ -118,23 +118,31 @@ export interface BmcStatus {
   /** Memory summary from BMC (Redfish MemorySummary). */
   memorySummary?: { totalGiB: number };
   /** Individual DIMM modules discovered via Redfish /Systems/X/Memory. */
-  memoryModules?: {
-    slot: string;
-    model: string;
-    sn?: string;
-    capacityMiB: number;
-    memoryType: string;
-    status: string;
-  }[];
-  /** Storage drives discovered via Redfish. */
-  drives?: {
-    name: string;
-    model: string;
-    sn?: string;
-    capacityGB: number;
-    mediaType: string;
-    status: string;
-  }[];
+ memoryModules?: {
+   slot: string;
+   model: string;
+   sn?: string;
+   capacityMiB: number;
+   memoryType: string;
+   baseModuleType?: string | null;
+   operatingSpeedMHz?: number | null;
+   rankCount?: number | null;
+   status: string;
+ }[];
+ /** Storage drives discovered via Redfish. */
+ drives?: {
+   name: string;
+   model: string;
+   sn?: string;
+   capacityGB: number;
+   mediaType: string;
+   interface?: string | null;
+   protocol?: string | null;
+   formFactor?: string | null;
+   rotationSpeedRPM?: number | null;
+   failurePredicted?: boolean | null;
+   status: string;
+ }[];
   /** Memory slot usage (total vs populated). */
   memorySlots?: SlotInfo | null;
   /** Disk bay usage (total vs occupied). May include form factor info. */

@@ -269,7 +269,15 @@ export function BmcLiveCard({ status, loading, itemSnMap }: Props) {
                       <span className="font-mono text-sm font-medium text-foreground">
                         {d.name}
                       </span>
-                      <span className="text-xs text-muted-foreground">{d.mediaType}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {d.mediaType}
+                        {d.formFactor && d.formFactor !== "—" && ` · ${d.formFactor}`}
+                      </span>
+                      {d.failurePredicted && (
+                        <span className="rounded bg-danger/10 px-1.5 py-0.5 text-[10px] font-medium text-danger">
+                          预故障
+                        </span>
+                      )}
                     </div>
                     <p className="text-xs text-muted-foreground">
                       {d.model}
@@ -288,12 +296,24 @@ export function BmcLiveCard({ status, loading, itemSnMap }: Props) {
                           )}
                         </span>
                       )}
+                      {(d.interface || d.protocol) && (
+                        <span className="ml-2 text-[10px]">
+                          {[d.interface, d.protocol].filter(Boolean).join(" / ")}
+                        </span>
+                      )}
                     </p>
                   </div>
-                  <div className="text-right font-mono text-sm font-medium text-foreground">
-                    {d.capacityGB >= 1000
-                      ? `${(d.capacityGB / 1000).toFixed(1)} TB`
-                      : `${d.capacityGB} GB`}
+                  <div className="flex flex-col items-end gap-0.5">
+                    {d.rotationSpeedRPM && d.rotationSpeedRPM > 0 && (
+                      <span className="font-mono text-[10px] text-muted-foreground">
+                        {d.rotationSpeedRPM.toLocaleString()} RPM
+                      </span>
+                    )}
+                    <div className="text-right font-mono text-sm font-medium text-foreground">
+                      {d.capacityGB >= 1000
+                        ? `${(d.capacityGB / 1000).toFixed(1)} TB`
+                        : `${d.capacityGB} GB`}
+                    </div>
                   </div>
                 </div>
               ))}
@@ -349,6 +369,8 @@ export function BmcLiveCard({ status, loading, itemSnMap }: Props) {
                       </span>
                       <span className="text-xs text-muted-foreground">
                         {dim.memoryType}
+                        {dim.baseModuleType && ` · ${dim.baseModuleType}`}
+                        {dim.operatingSpeedMHz && ` · ${dim.operatingSpeedMHz} MHz`}
                       </span>
                     </div>
                     <p className="text-xs text-muted-foreground">
@@ -361,8 +383,15 @@ export function BmcLiveCard({ status, loading, itemSnMap }: Props) {
                       )}
                     </p>
                   </div>
-                  <div className="text-right font-mono text-sm font-medium text-foreground">
-                    {formatMemorySize(dim.capacityMiB)}
+                  <div className="flex flex-col items-end gap-0.5">
+                    <div className="text-right font-mono text-sm font-medium text-foreground">
+                      {formatMemorySize(dim.capacityMiB)}
+                    </div>
+                    {dim.rankCount && (
+                      <span className="font-mono text-[10px] text-muted-foreground">
+                        {dim.rankCount} Rank
+                      </span>
+                    )}
                   </div>
                 </div>
               ))}

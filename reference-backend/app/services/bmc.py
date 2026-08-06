@@ -685,6 +685,61 @@ def _parse_drive_capacity_gb(d: dict) -> int:
     return 0
 
 
+def _parse_drive_fields(d: dict) -> dict | None:
+    """Extract a standardized drive dict from a Redfish Drive resource.
+
+    Returns None for absent / empty bays.  Used by all 6 drive discovery
+    paths so the field set stays consistent without repeating the mapping.
+    """
+    state = (d.get("Status") or {}).get("State")
+    if state == "Absent":
+        return None
+    model = d.get("Model")
+    sn = d.get("SerialNumber")
+    cap_gb = _parse_drive_capacity_gb(d)
+    if not model and not sn and cap_gb == 0:
+        return None
+    rpm = d.get("RotationSpeedRPM")
+    if isinstance(rpm, str):
+        try:
+            rpm = int(rpm)
+        except ValueError:
+            rpm = None
+    return {
+        "name": d.get("Name") or d.get("Id") or "?",
+        "model": model or "—",
+        "sn": sn or None,
+        "capacityGB": cap_gb,
+        "mediaType": d.get("MediaType") or "—",
+        "interface": d.get("Interface") or None,
+        "protocol": d.get("Protocol") or None,
+        "formFactor": d.get("FormFactor") or None,
+        "rotationSpeedRPM": rpm if isinstance(rpm, (int, float)) and rpm > 0 else None,
+        "failurePredicted": (d.get("FailurePredicted")
+                             if d.get("FailurePredicted") is not None
+                             else None),
+        "status": ((d.get("Status") or {}).get("Health")) or "OK",
+    }
+
+
+def _parse_memory_fields(d: dict) -> dict:
+    """Extract a standardized DIMM dict from a Redfish Memory resource."""
+    loc = d.get("DeviceLocator") or d.get("Name") or d.get("Id") or "?"
+    capacity_mib = d.get("CapacityMiB") or 0
+    speed = d.get("OperatingSpeedMhz") or d.get("ConfiguredMemorySpeedMHz")
+    return {
+        "slot": loc,
+        "model": d.get("Model") or d.get("Manufacturer") or "—",
+        "sn": d.get("SerialNumber") or None,
+        "capacityMiB": capacity_mib,
+        "memoryType": d.get("MemoryDeviceType") or "—",
+        "baseModuleType": d.get("BaseModuleType") or None,
+        "operatingSpeedMHz": speed if isinstance(speed, (int, float)) and speed > 0 else None,
+        "rankCount": d.get("RankCount"),
+        "status": ((d.get("Status") or {}).get("Health")) or "OK",
+    }
+
+
 def _pick_temp(temps: list[dict], pattern: str) -> float:
     rx = re.compile(pattern, re.IGNORECASE)
     for t in temps:
@@ -924,22 +979,7 @@ async def _redfish_storage_modern(
         # unpopulated slots with Status.State == "Absent" and no model,
         # SN, or capacity.  Including them creates phantom "disks" that
         # look like anomalies in the UI and Prometheus metrics.
-        state = (d.get("Status") or {}).get("State")
-        if state == "Absent":
-            return None
-        model = d.get("Model")
-        sn = d.get("SerialNumber")
-        cap_gb = _parse_drive_capacity_gb(d)
-        if not model and not sn and cap_gb == 0:
-            return None
-        return {
-            "name": d.get("Name") or d.get("Id") or "?",
-            "model": model or "—",
-            "sn": sn or None,
-            "capacityGB": cap_gb,
-            "mediaType": d.get("MediaType") or "—",
-            "status": ((d.get("Status") or {}).get("Health")) or "OK",
-        }
+        return _parse_drive_fields(d)
 
     results = await asyncio.gather(
         *[_get_drive(h) for h in drive_hrefs],
@@ -972,24 +1012,12 @@ async def _redfish_storage_simple(
             continue
         ss: dict = r.json() or {}
         for i, dev in enumerate(ss.get("Devices") or []):
-            # Skip absent / empty bays
-            if ((dev.get("Status") or {}).get("State")) == "Absent":
-                continue
-            model = dev.get("Model")
-            sn = dev.get("SerialNumber")
-            cap_gb = _parse_drive_capacity_gb(dev)
-            if not model and not sn and cap_gb == 0:
-                continue
-            drives.append(
-                {
-                    "name": dev.get("Name") or f"Disk.Bay.{i+1}",
-                    "model": model or "—",
-                    "sn": sn or None,
-                    "capacityGB": cap_gb,
-                    "mediaType": "—",
-                    "status": ((dev.get("Status") or {}).get("Health")) or "OK",
-                }
-            )
+            parsed = _parse_drive_fields(dev)
+            if parsed:
+                # SimpleStorage devices don't always have a Name field
+                if not parsed.get("name") or parsed["name"] == "?":
+                    parsed["name"] = f"Disk.Bay.{i+1}"
+                drives.append(parsed)
     return drives
 
 
@@ -1062,24 +1090,9 @@ async def _redfish_chassis_drives(
                             if dr.status_code != 200:
                                 continue
                             d = dr.json() or {}
-                            state = (d.get("Status") or {}).get("State")
-                            if state == "Absent":
-                                continue
-                            model = d.get("Model")
-                            sn = d.get("SerialNumber")
-                            cap_gb = _parse_drive_capacity_gb(d)
-                            if not model and not sn and cap_gb == 0:
-                                continue
-                            drives.append(
-                                {
-                                    "name": d.get("Name") or d.get("Id") or "?",
-                                    "model": model or "—",
-                                    "sn": sn or None,
-                                    "capacityGB": cap_gb,
-                                    "mediaType": d.get("MediaType") or "—",
-                                    "status": ((d.get("Status") or {}).get("Health")) or "OK",
-                                }
-                            )
+                            parsed = _parse_drive_fields(d)
+                            if parsed:
+                                drives.append(parsed)
                 continue
             members = (coll.json() or {}).get("Members") or []
             if not members:
@@ -1103,22 +1116,9 @@ async def _redfish_chassis_drives(
                 model = d.get("Model")
                 sn = d.get("SerialNumber")
                 cap_gb = _parse_drive_capacity_gb(d)
-                # Skip placeholder entries: if the drive has no Model, no SN
-                # AND zero capacity, it's a stub. But if any one field is
-                # present, keep it — some Inspur BMCs report valid drives
-                # with zero capacity but have a model name.
-                if not model and not sn and cap_gb == 0:
-                    continue
-                drives.append(
-                    {
-                        "name": d.get("Name") or d.get("Id") or "?",
-                        "model": model or "—",
-                        "sn": sn or None,
-                        "capacityGB": cap_gb,
-                        "mediaType": d.get("MediaType") or "—",
-                        "status": ((d.get("Status") or {}).get("Health")) or "OK",
-                    }
-                )
+                parsed = _parse_drive_fields(d)
+                if parsed:
+                    drives.append(parsed)
     except Exception:
         pass
     return drives
@@ -1170,22 +1170,9 @@ async def _redfish_storage_deep(
                     continue
                 d = dr.json() or {}
                 # Skip absent / empty bays
-                state = (d.get("Status") or {}).get("State")
-                if state == "Absent":
-                    continue
-                model = d.get("Model")
-                sn = d.get("SerialNumber")
-                cap_gb = _parse_drive_capacity_gb(d)
-                if not model and not sn and cap_gb == 0:
-                    continue
-                found.append({
-                    "name": d.get("Name") or d.get("Id") or "?",
-                    "model": model or "—",
-                    "sn": sn or None,
-                    "capacityGB": cap_gb,
-                    "mediaType": d.get("MediaType") or "—",
-                    "status": ((d.get("Status") or {}).get("Health")) or "OK",
-                })
+                parsed = _parse_drive_fields(d)
+                if parsed:
+                    found.append(parsed)
                 continue
 
             # Try /Drives sub-path on the controller
@@ -1207,22 +1194,9 @@ async def _redfish_storage_deep(
                             continue
                         d = dr.json() or {}
                         # Skip absent / empty bays
-                        state = (d.get("Status") or {}).get("State")
-                        if state == "Absent":
-                            continue
-                        model = d.get("Model")
-                        sn = d.get("SerialNumber")
-                        cap_gb = _parse_drive_capacity_gb(d)
-                        if not model and not sn and cap_gb == 0:
-                            continue
-                        found.append({
-                            "name": d.get("Name") or d.get("Id") or "?",
-                            "model": model or "—",
-                            "sn": sn or None,
-                            "capacityGB": cap_gb,
-                            "mediaType": d.get("MediaType") or "—",
-                            "status": ((d.get("Status") or {}).get("Health")) or "OK",
-                        })
+                        parsed = _parse_drive_fields(d)
+                        if parsed:
+                            found.append(parsed)
             return found
 
         results = await asyncio.gather(
@@ -1286,16 +1260,7 @@ async def _redfish_memory_dims(
         if r.status_code != 200:
             return None
         d = r.json() or {}
-        loc = d.get("DeviceLocator") or d.get("Name") or d.get("Id") or "?"
-        capacity_mib = d.get("CapacityMiB") or 0
-        return {
-            "slot": loc,
-            "model": d.get("Model") or d.get("Manufacturer") or "—",
-            "sn": d.get("SerialNumber") or None,
-            "capacityMiB": capacity_mib,
-            "memoryType": d.get("MemoryDeviceType") or "—",
-            "status": ((d.get("Status") or {}).get("Health")) or "OK",
-        }
+        return _parse_memory_fields(d)
 
     results = await asyncio.gather(
         *[_get_dim(m) for m in members],

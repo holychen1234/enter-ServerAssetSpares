@@ -447,6 +447,9 @@ async def get_server_bmc_status(
                 "sn": m.get("sn"),
                 "capacityMiB": m["capacityMiB"],
                 "memoryType": m["memoryType"],
+                "baseModuleType": m.get("baseModuleType"),
+                "operatingSpeedMHz": m.get("operatingSpeedMHz"),
+                "rankCount": m.get("rankCount"),
                 "status": m["status"],
             }
             for m in (status.get("memoryModules") or [])
@@ -464,7 +467,11 @@ async def get_server_bmc_status(
                 "sn": d.get("sn"),
                 "capacityGB": d.get("capacityGB"),
                 "mediaType": d.get("mediaType"),
+                "interface": d.get("interface"),
+                "protocol": d.get("protocol"),
                 "formFactor": d.get("formFactor", "unknown"),
+                "rotationSpeedRPM": d.get("rotationSpeedRPM"),
+                "failurePredicted": d.get("failurePredicted"),
                 "status": d.get("status"),
             }
             for d in (status.get("drives") or [])
