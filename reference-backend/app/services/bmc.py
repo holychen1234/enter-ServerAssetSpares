@@ -70,6 +70,94 @@ def _get_bmc_semaphore(base: str, manufacturer: str = "") -> asyncio.Semaphore:
 
 
 # ---------------------------------------------------------------------------
+# Persistent per-host HTTP connection pool + Redfish session cache
+# ---------------------------------------------------------------------------
+# Previously every _collect_redfish() call created a brand-new
+# httpx.AsyncClient, forcing a full TLS handshake (3-10 s on BMCs) on
+# every single poll.  With 50+ servers polled every 5 minutes that is
+# 50+ TLS handshakes per cycle — the dominant source of timeouts.
+#
+# The shared client reuses keep-alive connections so subsequent polls
+# to the same BMC skip the TLS handshake entirely.  A per-host Lock
+# serialises poll lifecycles (preventing header/auth races on the
+# shared client) while the per-host Semaphore still limits concurrent
+# in-flight HTTP requests within a single poll.
+
+_host_clients: dict[str, httpx.AsyncClient] = {}
+_host_locks: dict[str, asyncio.Lock] = {}
+
+# Redfish session tokens are cached per host with a TTL shorter than
+# the BMC's own session timeout (typically 30 min).  This avoids 2
+# extra HTTP round-trips (POST create + DELETE teardown) on every poll.
+SESSION_CACHE_TTL = 1500  # 25 minutes
+
+
+@dataclass
+class _SessionInfo:
+    token: str
+    uri: str | None
+    expires_at: float
+
+
+_session_cache: dict[str, _SessionInfo] = {}
+
+
+def _get_host_client_and_lock(
+    base: str, manufacturer: str = ""
+) -> tuple[httpx.AsyncClient, asyncio.Lock]:
+    """Return (shared httpx client, per-host lock) for a BMC host.
+
+    The client is created once and persisted so TCP+TLS connections are
+    reused across polls via HTTP keep-alive.  The lock serialises poll
+    lifecycles so auth headers on the shared client don't race.
+    """
+    if base not in _host_clients:
+        concurrency = 1 if (manufacturer and "inspur" in manufacturer.lower()) else 3
+        _host_clients[base] = httpx.AsyncClient(
+            timeout=httpx.Timeout(settings.redfish_timeout_seconds),
+            verify=False,
+            follow_redirects=True,
+            limits=httpx.Limits(
+                max_connections=concurrency + 2,
+                max_keepalive_connections=concurrency,
+                keepalive_expiry=120,
+            ),
+        )
+        _host_locks[base] = asyncio.Lock()
+    return _host_clients[base], _host_locks[base]
+
+
+async def _get_or_create_session(
+    client: httpx.AsyncClient, base: str, user: str, password: str
+) -> tuple[str | None, str | None]:
+    """Return a cached Redfish session token, creating one if needed."""
+    cached = _session_cache.get(base)
+    if cached and time.time() < cached.expires_at:
+        return cached.token, cached.uri
+
+    token, uri = await _redfish_session_auth(client, base, user, password)
+    if token:
+        _session_cache[base] = _SessionInfo(
+            token=token, uri=uri, expires_at=time.time() + SESSION_CACHE_TTL
+        )
+    return token, uri
+
+
+def _invalidate_session(base: str) -> None:
+    """Drop a cached session (e.g. when auth fails mid-poll)."""
+    _session_cache.pop(base, None)
+
+
+async def cleanup_clients() -> None:
+    """Close all persistent HTTP clients (called on app shutdown)."""
+    for client in _host_clients.values():
+        await client.aclose()
+    _host_clients.clear()
+    _host_locks.clear()
+    _session_cache.clear()
+
+
+# ---------------------------------------------------------------------------
 # In-memory state (per process). For a single-replica on-prem deployment
 # this is exactly what we want; for HA you would back this with Redis.
 # ---------------------------------------------------------------------------
@@ -1228,14 +1316,11 @@ async def _redfish_delete_session(
 
 async def _collect_redfish(server: Server) -> dict | None:
     base = _redfish_base(server)
-    timeout = httpx.Timeout(settings.redfish_timeout_seconds)
     has_creds = bool(server.bmc_user and server.bmc_password)
 
     try:
-        async with httpx.AsyncClient(
-            timeout=timeout, verify=False, follow_redirects=True
-        ) as client:
-            session_uri: str | None = None
+        client, host_lock = _get_host_client_and_lock(base, server.manufacturer or "")
+        async with host_lock:
             try:
                 # Pre-create the per-host semaphore so inner functions
                 # (_redfish_storage_drives, _redfish_memory_dims, etc.)
@@ -1244,17 +1329,20 @@ async def _collect_redfish(server: Server) -> dict | None:
                 # creates the semaphore with the right manufacturer hint.
                 _get_bmc_semaphore(base, server.manufacturer or "")
 
-                # Try session auth first (required by Inspur & many enterprise
-                # BMCs), fall back to Basic auth on the client if session isn't
-                # supported.
+                # Try cached session first, fall back to Basic auth.
                 if has_creds:
-                    session_token, session_uri = await _redfish_session_auth(
+                    session_token, session_uri = await _get_or_create_session(
                         client, base, server.bmc_user, server.bmc_password
                     )
                     if session_token:
                         client.headers["X-Auth-Token"] = session_token
                     else:
                         client.auth = (server.bmc_user, server.bmc_password)
+
+                # Save auth state so we can restore it after the poll
+                # (the client is shared across polls).
+                _saved_headers = dict(client.headers)
+                _saved_auth = client.auth
 
                 # Discover collection members.
                 # Inspur BMC lighttpd cannot handle concurrent TLS connections,
@@ -1466,10 +1554,13 @@ async def _collect_redfish(server: Server) -> dict | None:
                     "recentLogs": logs or None,
                 }
             finally:
-                # Always clean up the session so we don't hit BMC session
-                # limits (Dell iDRAC caps at 4–8 concurrent sessions).
-                if session_uri:
-                    await _redfish_delete_session(client, base, session_uri)
+                # Restore the shared client's auth state so the next
+                # poll (possibly for a different server/host) starts clean.
+                # Session tokens are cached separately and reused — no
+                # need to DELETE them on every poll.
+                client.headers.clear()
+                client.headers.update(_saved_headers)
+                client.auth = _saved_auth
     except Exception as e:
         import traceback as _tb
         logger.warning(
@@ -1752,30 +1843,12 @@ def _in_cooldown(mgmt_ip: str | None) -> bool:
 async def collect_and_save(server: Server) -> BmcSnapshot | None:
     """Poll the BMC once, persist the result to the database, and return the
     snapshot row.  Returns None when the BMC is unreachable."""
-    # Fast TCP pre-check — avoid a 70s Redfish timeout when the BMC is
-    # behind a firewall or powered off.  The check is a *soft hint* only:
-    # a slow BMC (Dell iDRAC under load, network jitter) may miss the 5s
-    # window but still respond fine to the actual Redfish request which
-    # carries its own 60s timeout.  We never skip the real attempt just
-    # because the TCP pre-check failed.
-    if server.mgmt_ip:
-        reachable = await _tcp_reachable(server.mgmt_ip)
-        if not reachable:
-            logger.info(
-                "bmc tcp pre-check failed for %s (ip=%s) — "
-                "will still attempt Redfish",
-                server.id, server.mgmt_ip,
-            )
-
-    # Attempt Redfish, with one retry for transient failures (e.g.
-    # temporary BMC overload, network hiccup).
+    # Single attempt — the connection pool keeps TLS warm so the real
+    # timeout is much shorter than before.  Dead hosts are handled by
+    # the cooldown mechanism in the weekly poller; retrying here just
+    # doubled the effective timeout (70 s + 2 s sleep + 70 s = 142 s
+    # per dead host) and blocked the poller from moving on.
     payload = await get_status(server, force_refresh=True)
-    if payload.get("source") != "live":
-        logger.info(
-            "bmc first attempt failed for %s — retrying after 2s", server.id,
-        )
-        await asyncio.sleep(2)
-        payload = await get_status(server, force_refresh=True)
 
     if payload.get("source") != "live":
         logger.info("bmc snapshot skipped for %s — source=%s", server.id, payload.get("source"))

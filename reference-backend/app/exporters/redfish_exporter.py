@@ -245,36 +245,59 @@ async def _refresh_one(s: Server):
 
 
 async def _refresh_loop():
-    """Poll all servers in batches, then sleep for the configured interval."""
+    """Poll all servers, spreading them evenly across the interval.
+
+    Instead of launching all servers at once (thundering herd), each
+    server is polled at a steady rate of interval/n seconds apart.
+    This smooths network load and prevents the BMC network from
+    saturating — the primary cause of timeouts at scale.
+    """
     global _running
     _running = True
     interval = max(settings.redfish_exporter_interval_seconds, 30)
-    batch = max(settings.redfish_exporter_batch_size, 1)
-    sem = asyncio.Semaphore(batch)
 
-    _log.info("redfish exporter refresh loop started (interval=%ds, batch=%d)", interval, batch)
+    _log.info("redfish exporter refresh loop started (interval=%ds)", interval)
 
     while _running:
         t0 = time.time()
         db_servers = _get_servers_with_creds()
-        _log.info("refresh round: %d servers with credentials", len(db_servers))
+        n = len(db_servers)
+        _log.info("refresh round: %d servers with credentials", n)
 
-        async def _with_limit(s: Server):
-            async with sem:
-                await _refresh_one(s)
+        if n == 0:
+            if _running:
+                await asyncio.sleep(interval)
+            continue
 
-        # Launch all servers concurrently; the semaphore throttles to `batch` at a time
-        await asyncio.gather(
-            *[_with_limit(s) for s in db_servers],
-            return_exceptions=True,
-        )
+        # Spread polls evenly: sleep interval/n between each launch.
+        # Individual polls run concurrently (no semaphore) because the
+        # per-host lock in bmc.py already serialises same-host access.
+        # The steady launch rate prevents network saturation.
+        delay_per_server = max(1.0, interval / n)
+        pending: set[asyncio.Task] = set()
+
+        for s in db_servers:
+            if not _running:
+                break
+            # Reap completed tasks to keep the set small
+            done = {t for t in pending if t.done()}
+            pending -= done
+
+            pending.add(asyncio.create_task(_refresh_one(s)))
+            await asyncio.sleep(delay_per_server)
+
+        # Wait for stragglers
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
 
         elapsed = time.time() - t0
         ok = sum(1 for e in _cache.values() if e.ok)
-        _log.info("refresh round done in %.1fs: %d/%d ok", elapsed, ok, len(db_servers))
+        _log.info("refresh round done in %.1fs: %d/%d ok", elapsed, ok, n)
 
         if _running:
-            await asyncio.sleep(interval)
+            remaining = max(0, interval - (time.time() - t0))
+            if remaining > 0:
+                await asyncio.sleep(remaining)
 
 
 def _spawn_refresh():

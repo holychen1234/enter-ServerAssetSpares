@@ -15,9 +15,9 @@ from app.settings import settings
 
 
 async def _poll_all():
-    """Weekly gentle poller — staggers BMC polls one-by-one to avoid
-    flooding the network, and respects a cooldown so recently-unreachable
-    hosts are only retried after a back-off period.
+    """Periodic poller — polls online servers concurrently (bounded by
+    a semaphore) and respects a cooldown so recently-unreachable hosts
+    are only retried after a back-off period.
 
     Successful results are persisted to the database immediately.
     Manual refreshes always bypass this cooldown."""
@@ -25,48 +25,51 @@ async def _poll_all():
     import logging as _logging
     _log = _logging.getLogger("bmc.poll")
 
+    POLL_CONCURRENCY = 5
+
     db = SessionLocal()
     try:
         servers = db.query(Server).filter(Server.status == "online").all()
         if not servers:
             return
 
-        _log.info("gentle weekly poll starting for %d servers", len(servers))
+        _log.info("poll starting for %d servers (concurrency=%d)", len(servers), POLL_CONCURRENCY)
         ok = 0
         failed = 0
         skipped = 0
 
-        for i, s in enumerate(servers):
-            # Honour per-host cooldown so we don't hammer dead BMCs every week
-            if bmc_svc._in_cooldown(s.mgmt_ip):
-                skipped += 1
-                continue
+        # Filter out cooled-down hosts before launching tasks
+        to_poll = [s for s in servers if not bmc_svc._in_cooldown(s.mgmt_ip)]
+        skipped = len(servers) - len(to_poll)
 
-            # Gentle stagger: 2–4 s between each server so BMCs and switches
-            # are never hit with a connection flood
-            if i > 0:
-                await _asyncio.sleep(3)
+        sem = _asyncio.Semaphore(POLL_CONCURRENCY)
 
-            try:
-                snap = await _asyncio.wait_for(
-                    bmc_svc.collect_and_save(s),
-                    timeout=settings.redfish_timeout_seconds + 10,
-                )
-                if snap:
-                    ok += 1
-                    bmc_svc._clear_cooldown(s.mgmt_ip)
-                else:
-                    failed += 1
+        async def _poll_one(s):
+            async with sem:
+                try:
+                    snap = await _asyncio.wait_for(
+                        bmc_svc.collect_and_save(s),
+                        timeout=settings.redfish_timeout_seconds + 10,
+                    )
+                    if snap:
+                        bmc_svc._clear_cooldown(s.mgmt_ip)
+                        return "ok"
+                    else:
+                        bmc_svc._set_cooldown(s.mgmt_ip)
+                        return "fail"
+                except _asyncio.TimeoutError:
                     bmc_svc._set_cooldown(s.mgmt_ip)
-            except _asyncio.TimeoutError:
-                failed += 1
-                bmc_svc._set_cooldown(s.mgmt_ip)
-            except Exception:
-                failed += 1
-                bmc_svc._set_cooldown(s.mgmt_ip)
+                    return "fail"
+                except Exception:
+                    bmc_svc._set_cooldown(s.mgmt_ip)
+                    return "fail"
+
+        done = await _asyncio.gather(*[_poll_one(s) for s in to_poll])
+        ok = done.count("ok")
+        failed = done.count("fail")
 
         _log.info(
-            "gentle poll finished: %d ok, %d failed, %d skipped (cooldown), of %d total",
+            "poll finished: %d ok, %d failed, %d skipped (cooldown), of %d total",
             ok, failed, skipped, len(servers),
         )
     finally:
@@ -86,12 +89,13 @@ async def lifespan(_app: FastAPI):
             id="bmc-poll",
         )
         scheduler.start()
-    # Start background Redfish refresh for the Prometheus exporter
+   # Start background Redfish refresh for the Prometheus exporter
     redfish_exporter._spawn_refresh()
     yield
     if scheduler.running:
         scheduler.shutdown(wait=False)
     await redfish_exporter.stop()
+    await bmc_svc.cleanup_clients()
 
 
 app = FastAPI(title="CMDB Reference API", version="0.1.0", lifespan=lifespan)
