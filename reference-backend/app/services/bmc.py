@@ -705,6 +705,18 @@ def _parse_drive_fields(d: dict) -> dict | None:
             rpm = int(rpm)
         except ValueError:
             rpm = None
+    # Diagnostic: log available keys when RotationSpeedRPM is missing
+    # for a non-SSD drive, to help identify BMC firmware gaps.
+    media = d.get("MediaType") or ""
+    if not rpm and "SSD" not in str(media).upper():
+        logger.info(
+            "bmc drive parse: RotationSpeedRPM missing for %s (model=%s media=%s). "
+            "Redfish keys: %s",
+            d.get("Name") or d.get("Id") or "?",
+            model or "?",
+            media or "?",
+            sorted(k for k in d if not k.startswith("@")),
+        )
     return {
         "name": d.get("Name") or d.get("Id") or "?",
         "model": model or "—",
@@ -713,7 +725,7 @@ def _parse_drive_fields(d: dict) -> dict | None:
         "mediaType": d.get("MediaType") or "—",
         "interface": d.get("Interface") or None,
         "protocol": d.get("Protocol") or None,
-        "formFactor": d.get("FormFactor") or None,
+        "formFactor": d.get("FormFactor") or d.get("DriveFormFactor") or None,
         "rotationSpeedRPM": rpm if isinstance(rpm, (int, float)) and rpm > 0 else None,
         "failurePredicted": (d.get("FailurePredicted")
                              if d.get("FailurePredicted") is not None
