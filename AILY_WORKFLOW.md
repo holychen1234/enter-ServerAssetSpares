@@ -24,7 +24,7 @@ MCP Server 工具名与 REST API 端点一一对应：
 | 4 | `get_server_stats` | `/get-server-stats` | 资产统计 | group_by（status/idc/manufacturer） |
 | 5 | `get_server_disks` | `/get-server-disks` | 主机硬盘列表 | identifier |
 | 6 | `get_server_slots` | `/get-server-slots` | 内存/磁盘槽位 | identifier |
-| 7 | `get_server_bmc_status` | `/get-server-bmc-status` | BMC 实时硬件状态 | identifier |
+| 7 | `get_server_bmc_status` | `/get-server-bmc-status` | BMC 实时硬件状态（含 PSU/主板/背板 FRU、内存厂商、硬盘逻辑扇区） | identifier |
 | 8 | `search_terminal_assets` | `/search-terminal-assets` | 搜索终端资产 | keyword, manufacturer, status, os |
 | 9 | `get_terminal_asset_detail` | `/get-terminal-asset-detail` | 终端资产详情 | identifier |
 
@@ -269,7 +269,7 @@ MCP 已自动注入每个工具的 schema（名称、参数、描述），System
 6. get_server_slots — 获取内存和磁盘槽位信息（总槽位数和已使用槽位数）
    参数: identifier(必填,主机名、SN序列号、资产编号或IP地址)
 
-7. get_server_bmc_status — 获取 BMC 实时硬件状态（CPU温度、风扇转速/数量、硬盘详情、电源功率/数量、整机健康、告警）
+7. get_server_bmc_status — 获取 BMC 实时硬件状态（CPU温度、风扇转速/数量/FRU(仅超聚变)、硬盘详情（含逻辑扇区大小）、内存（含厂商）、电源功率/数量/FRU（部件号/序列号/厂商/型号）、主板/背板 FRU、整机健康、告警）
    参数: identifier(必填,主机名、SN序列号、资产编号或IP地址)
 
 8. search_terminal_assets — 搜索终端资产（办公电脑、笔记本等终端设备）
@@ -287,6 +287,9 @@ MCP 已自动注入每个工具的 schema（名称、参数、描述），System
   - 包括通过 IP 地址或资产编号查询 → get_server_detail
 - 用户问某台机器的硬件状态/传感器数据 → get_server_bmc_status
   - CPU 温度/风扇/电源/健康状态/告警/开机没 → get_server_bmc_status
+  - 电源部件号/电源序列号/电源型号/电源厂商 → get_server_bmc_status
+  - 主板序列号/主板型号/背板信息/FRU/部件号 → get_server_bmc_status
+  - 内存品牌/内存厂商（如"三星内存"） → get_server_bmc_status
 - 用户问某台机器的硬盘信息（有几块硬盘、硬盘型号、硬盘容量、磁盘序列号、SSD还是HDD） → get_server_disks
 - 用户问内存/磁盘槽位/插槽信息 → get_server_slots
   - 内存插槽数量/插了几根内存/内存槽位使用率/DIMM 总数 → get_server_slots
@@ -375,6 +378,18 @@ MCP 已自动注入每个工具的 schema（名称、参数、描述），System
 输出: {"tool": "get_server_bmc_status", "params": {"identifier": "DB-SH-01"}}
 
 用户: "DB-SH-01 开机了没"
+输出: {"tool": "get_server_bmc_status", "params": {"identifier": "DB-SH-01"}}
+
+用户: "DB-SH-01 的主板序列号是多少"
+输出: {"tool": "get_server_bmc_status", "params": {"identifier": "DB-SH-01"}}
+
+用户: "查一下 DB-SH-01 电源的部件号"
+输出: {"tool": "get_server_bmc_status", "params": {"identifier": "DB-SH-01"}}
+
+用户: "DB-SH-01 用的什么品牌的内存"
+输出: {"tool": "get_server_bmc_status", "params": {"identifier": "DB-SH-01"}}
+
+用户: "DB-SH-01 的背板 FRU"
 输出: {"tool": "get_server_bmc_status", "params": {"identifier": "DB-SH-01"}}
 
 用户: "IDC-A 有哪些 Dell 服务器"
@@ -579,14 +594,16 @@ def main(llm_output: str) -> dict:
 
 严格按照用户提问的内容选择性展示，**只展示用户问到的部分**：
 
-- 问"电源" → **电源（共N个）**：PSU1: 当前250W/额定800W (OK), PSU2: 当前280W/额定800W (OK)，总功耗约 XXX W
+- 问"电源" → **电源（共N个）**：PSU1: 当前250W/额定800W (OK), PSU2: 当前280W/额定800W (OK)，总功耗约 XXX W；附 FRU（部件号/序列号/厂商/型号，仅当返回中有值时显示）
 - 问"CPU温度/温度" → **温度**：CPU X°C / 进风口 X°C
-- 问"风扇" → **风扇（共N个）**：Fan1: XXXX RPM (OK), ... 有异常的标出
-- 问"硬盘/磁盘/装了哪些盘" → **硬盘（共N块）**：型号/容量/介质/SN/状态，汇总总容量
+- 问"风扇" → **风扇（共N个）**：Fan1: XXXX RPM (OK), ... 有异常的标出；风扇部件号仅在超聚变提供时显示，Dell/Inspur 无此数据时如实说明"无"
+- 问"硬盘/磁盘/装了哪些盘" → **硬盘（共N块）**：型号/容量/介质/SN/状态，汇总总容量；附逻辑扇区大小（如 512 B / 4 KiB），注明"标准 Redfish 仅提供逻辑块大小"
 - 问"健康状态" → **整机健康**：OK/Warning/Critical，如有告警逐条列出
 - 问"告警" → 列出所有告警的时间/级别/内容，无告警则说"当前无告警"
 - 问"启动状态/开机没" → **电源状态**：On/Off，**启动进度**：XXXX
 - 问"整体运行情况/硬件概览/状态怎么样" → 展示所有模块（先给摘要，再分模块）
+- 问"内存" → 附厂商（Manufacturer），如 Samsung/Hynix/Micron
+- 问"主板/背板/FRU/部件号" → 逐条列出：类型(主板/背板) - 名称 - 厂商/型号 - 部件号 - 序列号 - 位置；无数据时说明"该厂商未提供板卡 FRU 数据"
 - 每条信息末尾注明数据来源（BMC实时/快照/模拟数据）
 
 ### 槽位信息格式（get_server_slots）
@@ -685,6 +702,10 @@ def main(llm_output: str) -> dict:
 | DB-SH-01 开机了没 | get_server_bmc_status(identifier=DB-SH-01) |
 | 这台机器的健康状态 | get_server_bmc_status(identifier=xxx) |
 | DB-SH-01 有什么告警 | get_server_bmc_status(identifier=DB-SH-01) |
+| DB-SH-01 的主板序列号 | get_server_bmc_status(identifier=DB-SH-01) |
+| DB-SH-01 电源部件号 | get_server_bmc_status(identifier=DB-SH-01) |
+| DB-SH-01 用的什么品牌内存 | get_server_bmc_status(identifier=DB-SH-01) |
+| DB-SH-01 背板 FRU 信息 | get_server_bmc_status(identifier=DB-SH-01) |
 | 查一下终端资产 TS-001 的配置 | get_terminal_asset_detail(identifier=TS-001) |
 | 市场部有多少台终端资产 | search_terminal_assets(keyword=市场部) |
 | Windows 11 的终端有哪些 | search_terminal_assets(os=Windows 11) |
@@ -728,6 +749,9 @@ def main(llm_output: str) -> dict:
 | 3 | `AILY_WORKFLOW.md`（本文件） | 工具表 + 意图路由 Prompt + 格式化 Prompt + 测试用例 |
 | 4 | Dify MCP 工具 | Dify 中刷新 MCP 工具列表 |
 | 5 | `ai_openapi.json` | 如使用 OpenAPI 导入需同步更新 |
+| 6 | `bmc.py` + `models.py` | 新增采集字段时需同步更新持久化模型和采集逻辑 |
+
+> **2026-08-11 注意**：本次 FRU 增强没有新增工具端点，仅丰富了 `get_server_bmc_status` 和 `get_server_detail` 的返回字段。Dify MCP 工具列表和 Python 节点 `endpoints` 字典无需更改。
 
 ---
 
@@ -740,3 +764,4 @@ def main(llm_output: str) -> dict:
 | 2026-06-04 | 新增 `search_terminal_assets` 和 `get_terminal_asset_detail` 端点；Dify OpenAPI 导入说明 |
 | 2026-06-24 | 新增 `get_server_slots` 端点；更新意图路由/格式化提示词 |
 | 2026-06-25 | **对齐更新**：MCP Server 新增 `get_server_slots` 工具；全部 tool docstring 增强为中英双语+场景示例；新增方案 A（MCP 直连 Dify）完整文档；网络设备/PC 工具移至 develop 分支独立维护 |
+| 2026-08-11 | **BMC FRU 数据**：新增 PSU FRU（部件号/序列号/厂商/型号）、风扇 FRU（仅超聚变 OEM）、内存厂商（Manufacturer）、主板/背板 FRU（Boards/Assembly API）、硬盘逻辑扇区大小（BlockSizeBytes）。更新意图路由规则/格式化提示词/测试用例 |

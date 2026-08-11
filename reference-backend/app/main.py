@@ -92,8 +92,11 @@ async def lifespan(_app: FastAPI):
             misfire_grace_time=300,
         )
         scheduler.start()
-    # Start background Redfish refresh for the Prometheus exporter
-    redfish_exporter._spawn_refresh()
+    # Start background Redfish refresh for the Prometheus exporter.
+    # Only spawn when the interval is > 0 (0 disables the exporter entirely,
+    # avoiding event-loop saturation on large deployments).
+    if settings.redfish_exporter_interval_seconds > 0:
+        redfish_exporter._spawn_refresh()
     yield
     if scheduler.running:
         scheduler.shutdown(wait=False)

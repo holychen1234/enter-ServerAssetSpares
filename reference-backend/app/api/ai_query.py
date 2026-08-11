@@ -186,12 +186,14 @@ def get_server_detail(
         status = bmc_svc.snapshot_to_status(snap, s)
         result["memorySlots"] = status.get("memorySlots")
         result["diskSlots"] = status.get("diskSlots")
+        result["boardFru"] = status.get("boardFru") or []
     else:
         if s.disk_slot_count > 0:
             result["diskSlots"] = {"total": s.disk_slot_count, "used": s.disk_count}
         else:
             result["diskSlots"] = None
         result["memorySlots"] = None
+        result["boardFru"] = []
     return result
 
 
@@ -372,9 +374,10 @@ async def get_server_bmc_status(
     identifier: str = Query(..., description="主机名、SN序列号、资产编号或IP地址"),
     db: Session = Depends(get_db),
 ):
-    """获取主机 BMC 实时状态。包括 CPU 温度、风扇状态/转速/数量、磁盘型号/
-    序列号/容量/状态、内存 DIMM 详情（槽位/型号/序列号/容量/类型/状态）/
-    总量、电源功率/数量/状态、整机健康状态等。
+    """获取主机 BMC 实时状态。包括 CPU 温度、风扇状态/转速/数量/FRU(仅超聚变)、
+    磁盘型号/序列号/容量/状态/逻辑扇区大小、内存 DIMM 详情（槽位/型号/厂商/序列号/
+    容量/类型/状态）/总量、电源功率/数量/状态/FRU（部件号/序列号/厂商/型号）、
+    主板/背板 FRU、整机健康状态等。
     优先读取每日快照（毫秒级响应），无快照时自动实时采集并存库。"""
     s = (
         db.query(Server)
@@ -397,7 +400,8 @@ async def get_server_bmc_status(
         status = bmc_svc.snapshot_to_status(snap, s)
     else:
         status = {"source": "unreachable", "drives": [], "memoryModules": [],
-                  "fans": [], "psus": [], "recentLogs": [], "alerts": [],
+                  "fans": [], "psus": [], "boardFru": [],
+                  "recentLogs": [], "alerts": [],
                   "history": [], "updatedAt": ""}
 
     return {
@@ -426,6 +430,8 @@ async def get_server_bmc_status(
                 "name": f["name"],
                 "rpm": f["rpm"],
                 "status": f["status"],
+                "partNumber": f.get("partNumber"),
+                "model": f.get("model"),
             }
             for f in (status.get("fans") or [])
         ],
@@ -444,6 +450,7 @@ async def get_server_bmc_status(
             {
                 "slot": m["slot"],
                 "model": m["model"],
+                "manufacturer": m.get("manufacturer"),
                 "sn": m.get("sn"),
                 "capacityMiB": m["capacityMiB"],
                 "memoryType": m["memoryType"],
@@ -473,6 +480,7 @@ async def get_server_bmc_status(
                 "rotationSpeedRPM": d.get("rotationSpeedRPM"),
                 "failurePredicted": d.get("failurePredicted"),
                 "status": d.get("status"),
+                "blockSizeBytes": d.get("blockSizeBytes"),
             }
             for d in (status.get("drives") or [])
         ],
@@ -484,9 +492,16 @@ async def get_server_bmc_status(
                 "watts": p["watts"],
                 "capacityW": p["capacityW"],
                 "status": p["status"],
+                "manufacturer": p.get("manufacturer"),
+                "model": p.get("model"),
+                "partNumber": p.get("partNumber"),
+                "serialNumber": p.get("serialNumber"),
             }
             for p in (status.get("psus") or [])
         ],
+        # board / assembly FRU (motherboard, backplanes)
+        "boardFruCount": len(status.get("boardFru") or []),
+        "boardFru": status.get("boardFru") or [],
         # alerts
         "alertCount": len(status.get("alerts") or []),
         "alerts": status.get("alerts") or [],

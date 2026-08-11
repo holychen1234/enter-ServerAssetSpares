@@ -90,6 +90,20 @@ export interface SlotInfo {
  */
 export type BmcDataSource = "live" | "simulated";
 
+/** Board / assembly FRU entry from Redfish Boards (xFusion) or Assembly
+ *  (Dell / Inspur).  Covers motherboard and disk backplane FRU data. */
+export interface BmcBoardFru {
+  name: string;
+  /** "motherboard" | "backplane" | "other" — inferred from vendor naming. */
+  type: string;
+  partNumber?: string | null;
+  serialNumber?: string | null;
+  manufacturer?: string | null;
+  model?: string | null;
+  /** Redfish Location — may be a string or a structured object. */
+  location?: unknown;
+}
+
 export interface BmcStatus {
   serverId: string;
   source: BmcDataSource;
@@ -99,12 +113,24 @@ export interface BmcStatus {
   bootProgress: string;
   cpuTempC: number;
   inletTempC: number;
-  fans: { name: string; rpm: number; status: Health }[];
+  fans: {
+    name: string;
+    rpm: number;
+    status: Health;
+    /** FRU fields — xFusion provides PartNumber + Model via OEM; Dell/Inspur leave null. */
+    partNumber?: string | null;
+    model?: string | null;
+  }[];
   psus: {
     name: string;
     watts: number;
     capacityW: number;
     status: Health;
+    /** FRU fields from the standard Redfish PowerSupply schema. */
+    manufacturer?: string | null;
+    model?: string | null;
+    partNumber?: string | null;
+    serialNumber?: string | null;
   }[];
   alerts: { id: string; time: string; level: Health; message: string }[];
   history: { t: string; cpu: number; inlet: number; power: number }[];
@@ -121,6 +147,8 @@ export interface BmcStatus {
  memoryModules?: {
    slot: string;
    model: string;
+   /** DIMM manufacturer (Samsung, Hynix, Micron, etc.) — standard Redfish field. */
+   manufacturer?: string | null;
    sn?: string;
    capacityMiB: number;
    memoryType: string;
@@ -142,11 +170,17 @@ export interface BmcStatus {
    rotationSpeedRPM?: number | null;
    failurePredicted?: boolean | null;
    status: string;
+   /** Logical block size in bytes (e.g. 512, 4096). Standard Redfish
+    *  only exposes logical sector size — cannot distinguish 512e vs 4Kn. */
+   blockSizeBytes?: number | null;
  }[];
   /** Memory slot usage (total vs populated). */
   memorySlots?: SlotInfo | null;
   /** Disk bay usage (total vs occupied). May include form factor info. */
   diskSlots?: SlotInfo | null;
+  /** Chassis board / assembly FRU (motherboard, backplanes).
+   *  xFusion via Boards API; Dell / Inspur via Assembly API. */
+  boardFru?: BmcBoardFru[] | null;
   /** Recent BMC log entries (Redfish LogServices). */
   recentLogs?: {
     id: string;

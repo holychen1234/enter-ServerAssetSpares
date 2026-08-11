@@ -205,6 +205,8 @@ def _simulate(server: Server) -> dict:
             "name": f"Fan{i+1}",
             "rpm": 0 if is_offline else int(random.uniform(4200, 7800)),
             "status": "Critical" if is_offline else "OK",
+            "partNumber": None,
+            "model": None,
         }
         for i in range(6)
     ]
@@ -214,6 +216,10 @@ def _simulate(server: Server) -> dict:
             "watts": 0 if is_offline else int(random.uniform(180, 360)),
             "capacityW": 800,
             "status": "Critical" if is_offline else "OK",
+            "manufacturer": None,
+            "model": None,
+            "partNumber": None,
+            "serialNumber": None,
         }
         for i in range(2)
     ]
@@ -250,6 +256,7 @@ def _simulate(server: Server) -> dict:
                 "capacityGB": 0,
                 "mediaType": "—",
                 "status": "Unknown" if is_offline else "—",
+                "blockSizeBytes": None,
             }
         )
 
@@ -306,6 +313,7 @@ def _simulate(server: Server) -> dict:
             else None
         ),
         "recentLogs": recent_logs,
+        "boardFru": [],
     }
 
 
@@ -349,6 +357,127 @@ class SlotDetectionStrategy:
         chassis_path: str,
     ) -> list[dict]:
         return []
+
+    async def get_board_fru_info(
+        self,
+        client: httpx.AsyncClient,
+        base: str,
+        chassis_path: str,
+    ) -> list[dict]:
+        """Collect chassis board / assembly FRU data (motherboard, backplanes).
+
+        xFusion exposes boards via ``/Chassis/X/Boards``; Dell and Inspur
+        expose assemblies via ``/Chassis/X/Assembly``.  Default returns [].
+        """
+        return []
+
+
+# ---------------------------------------------------------------------------
+# Board FRU helpers
+# ---------------------------------------------------------------------------
+
+def _classify_board_type(name: str, model: str = "") -> str:
+    """Infer board type from its Redfish Name and Model fields."""
+    n = (name or "").lower()
+    m = (model or "").lower()
+    combined = f"{n} {m}"
+    # Backplane indicators
+    if ("backplane" in combined or "diskbp" in n or "drive backplane" in m
+            or "hdd_f_bp" in n or "hdd_r_bp" in n
+            or n.startswith("bp") or "bp_" in n):
+        return "backplane"
+    # Motherboard indicators
+    if ("mainboard" in combined or "motherboard" in combined
+            or "system board" in combined or "systemplanar" in m
+            or "system.embedded" in n
+            or n == "chassis"):   # bare Chassis fallback = enclosure/motherboard
+        return "motherboard"
+    return "other"
+
+
+def _normalize_board_fru(
+    name: str,
+    part_number: str | None,
+    serial_number: str | None,
+    manufacturer: str | None,
+    model: str | None,
+    location: Any | None,
+) -> dict:
+    """Produce one standardised board FRU entry."""
+    return {
+        "name": name,
+        "type": _classify_board_type(name, model or ""),
+        "partNumber": part_number or None,
+        "serialNumber": serial_number or None,
+        "manufacturer": manufacturer or None,
+        "model": model or None,
+        "location": location,
+    }
+
+
+async def _parse_assembly_fru(
+    client: httpx.AsyncClient,
+    base: str,
+    chassis_path: str,
+) -> list[dict]:
+    """Parse board FRU from a Redfish Assembly resource (Dell / Inspur).
+
+    Dell iDRAC returns ``{"Assemblies": [...]}``; some Inspur BMCs use
+    ``{"Members": [...]}`` or even a raw top-level array.
+    """
+    out: list[dict] = []
+    try:
+        url = f"{base}/{chassis_path}/Assembly"
+        r = await client.get(url)
+        if r.status_code != 200:
+            logger.warning(
+                "board_fru: Assembly %s → HTTP %d (skipped)", url, r.status_code,
+            )
+            return out
+        data = r.json() or {}
+
+        # Try multiple payload shapes
+        items: list[dict] = []
+        if isinstance(data, list):
+            items = data
+        elif isinstance(data.get("Assemblies"), list):
+            items = data["Assemblies"]
+        elif isinstance(data.get("Members"), list):
+            items = data["Members"]
+        else:
+            # The response might be a single object with FRU fields
+            # (some Inspur versions return this).
+            name = data.get("Name") or data.get("Id")
+            if name:
+                items = [data]
+
+        if items:
+            logger.warning(
+                "board_fru: Assembly %s → %d items (first: %s)",
+                chassis_path, len(items), items[0].get("Name", "?"),
+            )
+
+        if not items and r.status_code == 200:
+            logger.warning(
+                "board_fru: Assembly %s → 200 but no items parsed (keys=%s)",
+                chassis_path, list(data.keys())[:10],
+            )
+
+        for a in items:
+            name = a.get("Name") or a.get("Id") or "?"
+            out.append(_normalize_board_fru(
+                name,
+                a.get("PartNumber"),
+                a.get("SerialNumber"),
+                a.get("Manufacturer"),
+                a.get("Model"),
+                a.get("Location"),
+            ))
+    except Exception:
+        logger.warning(
+            "board_fru: Assembly %s failed", chassis_path, exc_info=True,
+        )
+    return out
 
 
 class _DellSlotStrategy(SlotDetectionStrategy):
@@ -432,6 +561,10 @@ class _DellSlotStrategy(SlotDetectionStrategy):
             pass
         return info
 
+    async def get_board_fru_info(self, client, base, chassis_path):
+        """Dell: Assembly resource under the embedded chassis."""
+        return await _parse_assembly_fru(client, base, chassis_path)
+
 
 class _XFusionSlotStrategy(SlotDetectionStrategy):
     """XFusion (超聚变) — OEM properties under ``Oem.xFusion``."""
@@ -488,6 +621,39 @@ class _XFusionSlotStrategy(SlotDetectionStrategy):
             pass
         return info
 
+    async def get_board_fru_info(self, client, base, chassis_path):
+        """xFusion: iterate /Chassis/X/Boards members for FRU data."""
+        out: list[dict] = []
+        try:
+            r = await client.get(f"{base}/{chassis_path}/Boards")
+            if r.status_code != 200:
+                return out
+            members = (r.json() or {}).get("Members") or []
+            for m in members:
+                href = m.get("@odata.id")
+                if not href:
+                    continue
+                try:
+                    async with _get_bmc_semaphore(base):
+                        bp = await client.get(f"{base}{href}")
+                    if bp.status_code != 200:
+                        continue
+                    b = bp.json() or {}
+                    name = b.get("Name") or b.get("Id") or "?"
+                    out.append(_normalize_board_fru(
+                        name,
+                        b.get("PartNumber"),
+                        b.get("SerialNumber"),
+                        b.get("Manufacturer"),
+                        b.get("Model"),
+                        b.get("Location"),
+                    ))
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        return out
+
 
 class _InspurSlotStrategy(SlotDetectionStrategy):
     """Inspur (浪潮) — OEM properties under ``Oem.Public``."""
@@ -505,6 +671,43 @@ class _InspurSlotStrategy(SlotDetectionStrategy):
     # Inspur disk slot total CANNOT be auto-detected (DeviceMaxNum.DiskNum=0,
     # DriveSlots returns 1010, backplanes carry no slot count).  Return 0 to
     # signal "unknown — use server.disk_slot_count fallback".
+
+    async def get_board_fru_info(self, client, base, chassis_path):
+        """Inspur: Assembly resource carries backplane FRU data.
+        If Assembly is not available (HTTP 404 — older BMC firmware),
+        fall back to the Chassis resource's own FRU fields which provide
+        at least the motherboard-level PartNumber / SerialNumber."""
+        result = await _parse_assembly_fru(client, base, chassis_path)
+        if result:
+            return result
+
+        # Fallback: read chassis FRU directly
+        try:
+            r = await client.get(f"{base}/{chassis_path}")
+            if r.status_code == 200:
+                data = r.json() or {}
+                pn = data.get("PartNumber")
+                sn = data.get("SerialNumber")
+                if isinstance(pn, (int, float)) and pn == 0:
+                    pn = None
+                if isinstance(pn, str) and pn.strip() in ("0", ""):
+                    pn = None
+                if sn or pn:
+                    logger.warning(
+                        "board_fru: Assembly 404, using Chassis FRU fallback "
+                        "(PN=%s SN=%s)", pn, sn,
+                    )
+                    return [_normalize_board_fru(
+                        "Chassis",
+                        pn,
+                        sn,
+                        data.get("Manufacturer"),
+                        data.get("Model"),
+                        data.get("Location"),
+                    )]
+        except Exception:
+            pass
+        return []
 
 
 class _GenericSlotStrategy(SlotDetectionStrategy):
@@ -541,9 +744,19 @@ class _GenericSlotStrategy(SlotDetectionStrategy):
                 return info
         return []
 
+    async def get_board_fru_info(self, client, base, chassis_path):
+        """Fallback: try each vendor's board FRU path in order."""
+        for d in self._delegates:
+            info = await d.get_board_fru_info(client, base, chassis_path)
+            if info:
+                return info
+        return []
+
 
 # Registry: manufacturer name → strategy instance.
 # Keys should match the values stored in the ``servers.manufacturer`` column.
+# Strategies cover slot detection, backplane enumeration, and board FRU
+# collection (Boards / Assembly).
 SLOT_STRATEGIES: dict[str, SlotDetectionStrategy] = {
     "Dell": _DellSlotStrategy(),
     "XFusion": _XFusionSlotStrategy(),
@@ -731,6 +944,10 @@ def _parse_drive_fields(d: dict) -> dict | None:
                              if d.get("FailurePredicted") is not None
                              else None),
         "status": ((d.get("Status") or {}).get("Health")) or "OK",
+        # Logical block size (bytes).  Standard Redfish only exposes the
+        # *logical* sector size — 512e vs 4Kn physical format cannot be
+        # distinguished through the standard API.
+        "blockSizeBytes": d.get("BlockSizeBytes"),
     }
 
 
@@ -741,7 +958,8 @@ def _parse_memory_fields(d: dict) -> dict:
     speed = d.get("OperatingSpeedMhz") or d.get("ConfiguredMemorySpeedMHz")
     return {
         "slot": loc,
-        "model": d.get("Model") or d.get("Manufacturer") or "—",
+        "model": d.get("Model") or "—",
+        "manufacturer": d.get("Manufacturer") or None,
         "sn": d.get("SerialNumber") or None,
         "capacityMiB": capacity_mib,
         "memoryType": d.get("MemoryDeviceType") or "—",
@@ -1384,6 +1602,12 @@ async def _collect_redfish(server: Server) -> dict | None:
     try:
         client, host_lock = _get_host_client_and_lock(base, server.manufacturer or "")
         async with host_lock:
+            # Save auth state outside the try block so the finally clause
+            # can always restore the shared client even when an early
+            # exception (e.g. CancelledError during session creation)
+            # prevents the inner try from reaching the save.
+            _saved_headers = dict(client.headers)
+            _saved_auth = client.auth
             try:
                 # Pre-create the per-host semaphore so inner functions
                 # (_redfish_storage_drives, _redfish_memory_dims, etc.)
@@ -1401,11 +1625,6 @@ async def _collect_redfish(server: Server) -> dict | None:
                         client.headers["X-Auth-Token"] = session_token
                     else:
                         client.auth = (server.bmc_user, server.bmc_password)
-
-                # Save auth state so we can restore it after the poll
-                # (the client is shared across polls).
-                _saved_headers = dict(client.headers)
-                _saved_auth = client.auth
 
                 # Discover collection members.
                 # Inspur BMC lighttpd cannot handle concurrent TLS connections,
@@ -1466,6 +1685,9 @@ async def _collect_redfish(server: Server) -> dict | None:
                     backplane_info = await slot_strategy.get_disk_backplane_info(
                         client, base, chassis_path,
                     )
+                    board_fru_info = await slot_strategy.get_board_fru_info(
+                        client, base, chassis_path,
+                    )
                     controllers = await _redfish_storage_controllers_health(
                         client, base, system_path,
                     )
@@ -1475,7 +1697,8 @@ async def _collect_redfish(server: Server) -> dict | None:
                 else:
                     thermal_res, power_res, system_res, drives, mem_modules, \
                         logs, memory_slot_total, disk_slot_total, \
-                        backplane_info, controllers, processors = (
+                        backplane_info, board_fru_info, controllers, \
+                        processors = (
                         await asyncio.gather(
                             client.get(f"{base}/{chassis_path}/Thermal"),
                             client.get(f"{base}/{chassis_path}/Power"),
@@ -1494,6 +1717,9 @@ async def _collect_redfish(server: Server) -> dict | None:
                                 client, base, chassis_path,
                             ),
                             slot_strategy.get_disk_backplane_info(
+                                client, base, chassis_path,
+                            ),
+                            slot_strategy.get_board_fru_info(
                                 client, base, chassis_path,
                             ),
                             _redfish_storage_controllers_health(
@@ -1548,13 +1774,26 @@ async def _collect_redfish(server: Server) -> dict | None:
 
                 fans = [
                     {
-                        "name": f.get("Name") or f"Fan{i+1}",
-                        "rpm": int(f.get("Reading") or 0),
+                        "name": fn.get("Name") or f"Fan{i+1}",
+                        "rpm": int(fn.get("Reading") or 0),
                         "status": (
-                            (f.get("Status") or {}).get("Health")
+                            (fn.get("Status") or {}).get("Health")
                         ) or "OK",
+                        # Fan FRU — try multiple sources (xFusion places
+                        # PartNumber/Model either directly on the fan object
+                        # or under Oem.xFusion; Inspur uses Oem.Public).
+                        "partNumber": (
+                            fn.get("PartNumber")
+                            or _deep_get(fn, "Oem", "xFusion", "PartNumber")
+                            or _deep_get(fn, "Oem", "Public", "PartNumber")
+                        ) or None,
+                        "model": (
+                            fn.get("Model")
+                            or _deep_get(fn, "Oem", "xFusion", "Model")
+                            or _deep_get(fn, "Oem", "Public", "Model")
+                        ) or None,
                     }
-                    for i, f in enumerate(thermal.get("Fans") or [])
+                    for i, fn in enumerate(thermal.get("Fans") or [])
                 ]
                 psus = [
                     {
@@ -1568,6 +1807,11 @@ async def _collect_redfish(server: Server) -> dict | None:
                         "status": (
                             (ps.get("Status") or {}).get("Health")
                         ) or "OK",
+                        # FRU fields (standard Redfish PowerSupply schema)
+                        "manufacturer": ps.get("Manufacturer") or None,
+                        "model": ps.get("Model") or None,
+                        "partNumber": ps.get("PartNumber") or None,
+                        "serialNumber": ps.get("SerialNumber") or None,
                     }
                     for i, ps in enumerate(power.get("PowerSupplies") or [])
                 ]
@@ -1613,6 +1857,37 @@ async def _collect_redfish(server: Server) -> dict | None:
                 memory_slots = _build_slot_info(memory_slot_total, mem_used["used"])
                 disk_slots = _build_slot_info(_disk_total, disk_used["used"], backplane_info)
 
+                # Chassis FRU fallback: when vendor-specific Board/Assembly
+                # endpoints are unavailable (e.g. Inspur BMCs without Assembly
+                # support), read the Chassis resource's own FRU fields which
+                # carry at least the motherboard-level PartNumber/SerialNumber.
+                if not board_fru_info:
+                    try:
+                        c = await client.get(f"{base}/{chassis_path}")
+                        if c.status_code == 200:
+                            cd = c.json() or {}
+                            pn = cd.get("PartNumber")
+                            sn = cd.get("SerialNumber")
+                            # Filter out invalid placeholder values
+                            if isinstance(pn, (int, float)) and pn == 0:
+                                pn = None
+                            if isinstance(pn, str) and pn.strip() in ("0", ""):
+                                pn = None
+                            if sn or pn:
+                                logger.warning(
+                                    "board_fru: Chassis FRU fallback "
+                                    "(PN=%s SN=%s)", pn, sn,
+                                )
+                                board_fru_info = [_normalize_board_fru(
+                                    "Chassis",
+                                    pn, sn,
+                                    cd.get("Manufacturer"),
+                                    cd.get("Model"),
+                                    cd.get("Location"),
+                                )]
+                    except Exception:
+                        pass
+
                 return {
                     "power": (
                         "On" if (system.get("PowerState") == "On") else "Off"
@@ -1634,6 +1909,7 @@ async def _collect_redfish(server: Server) -> dict | None:
                     "drives": drives or None,
                     "memorySlots": memory_slots,
                     "diskSlots": disk_slots,
+                    "boardFru": board_fru_info or [],
                     "processors": processors or None,
                     "storageControllers": controllers or None,
                     "recentLogs": logs or None,
@@ -1980,6 +2256,7 @@ async def collect_and_save(server: Server) -> BmcSnapshot | None:
             recent_logs=payload.get("recentLogs"),
             history=payload.get("history"),
             alerts=payload.get("alerts"),
+            board_fru=payload.get("boardFru"),
         )
         db.add(snap)
         db.commit()
@@ -2058,6 +2335,7 @@ def snapshot_to_status(snap: BmcSnapshot, server: Server | None = None) -> dict:
         "recentLogs": snap.recent_logs or [],
         "history": snap.history or [],
         "alerts": snap.alerts or [],
+        "boardFru": snap.board_fru or [],
         "updatedAt": snap.collected_at.isoformat() if snap.collected_at else "",
         "bootProgress": "OSBootCompleted",
     }

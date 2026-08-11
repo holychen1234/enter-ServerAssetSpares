@@ -16,6 +16,7 @@ import {
   Thermometer,
   Wind,
   Zap,
+  CircuitBoard,
 } from "lucide-react";
 import type { BmcStatus } from "@/types/cmdb";
 import {
@@ -309,6 +310,13 @@ export function BmcLiveCard({ status, loading, itemSnMap }: Props) {
                         {d.rotationSpeedRPM.toLocaleString()} RPM
                       </span>
                     )}
+                    {d.blockSizeBytes && d.blockSizeBytes > 0 && (
+                      <span className="font-mono text-[10px] text-muted-foreground">
+                        {d.blockSizeBytes >= 1024
+                          ? `${d.blockSizeBytes / 1024} KiB`
+                          : `${d.blockSizeBytes} B`}
+                      </span>
+                    )}
                     <div className="text-right font-mono text-sm font-medium text-foreground">
                       {d.capacityGB >= 1000
                         ? `${(d.capacityGB / 1000).toFixed(1)} TB`
@@ -374,6 +382,10 @@ export function BmcLiveCard({ status, loading, itemSnMap }: Props) {
                       </span>
                     </div>
                     <p className="text-xs text-muted-foreground">
+                      {dim.manufacturer && (
+                        <span className="font-medium">{dim.manufacturer}</span>
+                      )}
+                      {dim.manufacturer && " "}
                       {dim.model}
                       {dim.sn && (
                         <span className="ml-2 font-mono text-[10px]">
@@ -400,6 +412,71 @@ export function BmcLiveCard({ status, loading, itemSnMap }: Props) {
         </Card>
       )}
 
+      {/* ===== Row 3.5: Board / Assembly FRU (full width) ===== */}
+      {status.boardFru && status.boardFru.length > 0 && (
+        <Card className="lg:col-span-3 shadow-card-soft">
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center gap-2 text-base">
+              <CircuitBoard className="h-4 w-4 text-primary" /> 主板 / 背板 FRU
+              <span className="text-xs font-normal text-muted-foreground">
+                共 {status.boardFru.length} 个
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="divide-y divide-border">
+              {status.boardFru.map((b) => (
+                <div key={b.name} className="flex items-center gap-4 px-6 py-3">
+                  <span
+                    className={
+                      "inline-block rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wider " +
+                      (b.type === "motherboard"
+                        ? "bg-primary/10 text-primary border-primary/30"
+                        : b.type === "backplane"
+                        ? "bg-info/10 text-info border-info/30"
+                        : "bg-muted text-muted-foreground border-border")
+                    }
+                  >
+                    {b.type === "motherboard" ? "主板" : b.type === "backplane" ? "背板" : b.type}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline gap-2">
+                      <span className="font-mono text-sm font-medium text-foreground">
+                        {b.name}
+                      </span>
+                      {(b.manufacturer || b.model) && (
+                        <span className="text-xs text-muted-foreground">
+                          {[b.manufacturer, b.model].filter(Boolean).join(" · ")}
+                        </span>
+                      )}
+                    </div>
+                    {(b.partNumber || b.serialNumber || b.location) && (
+                      <p className="text-xs text-muted-foreground">
+                        {b.partNumber && (
+                          <span className="mr-2">P/N: {b.partNumber}</span>
+                        )}
+                        {b.serialNumber && (
+                          <span className="mr-2 font-mono text-[10px]">
+                            S/N: <span className="text-primary">{b.serialNumber}</span>
+                          </span>
+                        )}
+                        {b.location && (
+                          <span className="text-[10px]">
+                            {typeof b.location === "string"
+                              ? b.location
+                              : (b.location as any)?.PartLocation?.ServiceLabel || ""}
+                          </span>
+                        )}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* ===== Row 4: Fans + PSU ===== */}
 
       <Card className="lg:col-span-2 shadow-card-soft">
@@ -417,6 +494,11 @@ export function BmcLiveCard({ status, loading, itemSnMap }: Props) {
                   <StatusBadge kind="health" value={f.status} />
                 </div>
                 <p className="mt-1 font-mono text-lg font-medium text-foreground">{f.rpm}<span className="ml-1 text-xs text-muted-foreground">rpm</span></p>
+                {(f.partNumber || f.model) && (
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    {[f.partNumber, f.model].filter(Boolean).join(" · ")}
+                  </p>
+                )}
               </div>
             ))}
           </div>
@@ -441,6 +523,15 @@ export function BmcLiveCard({ status, loading, itemSnMap }: Props) {
                 <span className="text-xs text-muted-foreground">W / {p.capacityW}W</span>
               </div>
               <Progress value={(p.watts / p.capacityW) * 100} className="mt-2 h-1.5" />
+              {(p.manufacturer || p.model || p.partNumber || p.serialNumber) && (
+                <div className="mt-1.5 space-y-0.5 text-[10px] text-muted-foreground">
+                  {(p.manufacturer || p.model) && (
+                    <p>{[p.manufacturer, p.model].filter(Boolean).join(" · ")}</p>
+                  )}
+                  {p.partNumber && <p>P/N: {p.partNumber}</p>}
+                  {p.serialNumber && <p className="font-mono">S/N: {p.serialNumber}</p>}
+                </div>
+              )}
             </div>
           ))}
         </CardContent>

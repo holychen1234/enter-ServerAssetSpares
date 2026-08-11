@@ -226,6 +226,7 @@ class BmcSnapshot(Base):
     psus = Column(JSON, nullable=True)
     memory_slots = Column(JSON, nullable=True)
     disk_slots = Column(JSON, nullable=True)
+    board_fru = Column(JSON, nullable=True)
     recent_logs = Column(JSON, nullable=True)
     history = Column(JSON, nullable=True)
     alerts = Column(JSON, nullable=True)
