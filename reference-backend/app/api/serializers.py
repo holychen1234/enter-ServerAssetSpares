@@ -64,7 +64,12 @@ def item_to_dict(it: PartItem, server_hostname: str | None = None) -> dict:
     }
 
 
-def part_to_dict(p: Part, item_count: int | None = None, status_counts: dict | None = None) -> dict:
+def part_to_dict(
+    p: Part,
+    item_count: int | None = None,
+    status_counts: dict | None = None,
+    stock: int | None = None,
+) -> dict:
     return {
         "id": p.id,
         "category": p.category,
@@ -72,7 +77,7 @@ def part_to_dict(p: Part, item_count: int | None = None, status_counts: dict | N
         "model": p.model,
         "spec": p.spec,
         "sn": p.sn,
-        "stock": p.stock,
+        "stock": p.stock if stock is None else stock,
         "safetyStock": p.safety_stock,
         "unit": p.unit,
         "location": p.location,

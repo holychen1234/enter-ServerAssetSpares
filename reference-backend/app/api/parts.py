@@ -24,6 +24,14 @@ def _item_count(db: Session, part_id: str) -> int:
     )
 
 
+def _stock_count(db: Session, part_id: str) -> int:
+    return (
+        db.query(PartItem)
+        .filter(PartItem.part_id == part_id, PartItem.status == "in_stock")
+        .count()
+    )
+
+
 # ── Part CRUD ────────────────────────────────────────────────────
 
 
@@ -54,7 +62,14 @@ def list_parts(
     for pid, status, cnt in status_rows:
         status_by_part.setdefault(pid, {})[status] = cnt
     return [
-        part_to_dict(p, item_count=counts.get(p.id, 0), status_counts=status_by_part.get(p.id, {}))
+        part_to_dict(
+            p,
+            item_count=counts.get(p.id, 0),
+            status_counts=status_by_part.get(p.id, {}),
+            # Derive the displayed stock from the live item counts so the
+            # web can never show a stale parts.stock column.
+            stock=status_by_part.get(p.id, {}).get("in_stock", 0),
+        )
         for p in parts
     ]
 
@@ -68,7 +83,7 @@ def get_part(
     p = db.get(Part, pid)
     if not p:
         raise HTTPException(404, "part not found")
-    return part_to_dict(p, item_count=_item_count(db, p.id))
+    return part_to_dict(p, item_count=_item_count(db, p.id), stock=_stock_count(db, p.id))
 
 
 @router.post("/parts")

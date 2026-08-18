@@ -84,6 +84,32 @@ def _stamp(engine, revision: str) -> None:
         conn.commit()
 
 
+def _repair_part_stock(engine) -> None:
+    """Re-derive parts.stock from the actual in_stock PartItem count.
+
+    Runs on every container start so stale stock values written by older
+    code paths (inbound movements that bumped the counter without creating
+    items) are healed automatically on the next deploy/restart.
+    """
+    if not (_table_exists(engine, "parts") and _table_exists(engine, "part_items")):
+        print("[prestart] parts/part_items not present yet — skipping stock repair")
+        return
+    with engine.connect() as conn:
+        result = conn.execute(
+            text(
+                "UPDATE parts p "
+                "LEFT JOIN ("
+                "  SELECT part_id, COUNT(*) AS cnt FROM part_items "
+                "  WHERE status = 'in_stock' GROUP BY part_id"
+                ") x ON x.part_id = p.id "
+                "SET p.stock = COALESCE(x.cnt, 0)"
+            )
+        )
+        repaired = result.rowcount
+        conn.commit()
+    print(f"[prestart] Repaired parts.stock from part_items ({repaired} rows checked)")
+
+
 # ── detection logic ──────────────────────────────────────────────────
 
 
@@ -135,6 +161,8 @@ def main() -> None:
     engine = create_engine(_db_url())
 
     try:
+        _repair_part_stock(engine)
+
         if _alembic_has_entries(engine):
             with engine.connect() as conn:
                 current = conn.execute(

@@ -280,6 +280,7 @@ def sync_part_item(db: Session, payload: dict) -> dict[str, Any]:
         )
     else:
         # ── Existing item: update metadata ──
+        old_part_id = item.part_id
         item.part_id = part.id
 
         loc = _normalize_field(payload.get("存放位置"))
@@ -299,6 +300,13 @@ def sync_part_item(db: Session, payload: dict) -> dict[str, Any]:
             )
 
         _sync_part_stock(db, part)
+
+        # If the item was re-parented to a different Part, the old Part's
+        # stock must be re-derived too or it silently drifts from reality.
+        if old_part_id and old_part_id != part.id:
+            old_part = db.get(Part, old_part_id)
+            if old_part:
+                _sync_part_stock(db, old_part)
 
     db.commit()
 

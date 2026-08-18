@@ -73,7 +73,7 @@ def sample_server(db: Session) -> Server:
 
 @pytest.fixture(scope="function")
 def sample_part(db: Session) -> Part:
-    """A disk part in stock."""
+    """A disk part with two in-stock items (stock=2 matches reality)."""
     p = Part(
         id=str(uuid.uuid4()),
         category="disk",
@@ -87,6 +87,18 @@ def sample_part(db: Session) -> Part:
         status="in_stock",
     )
     db.add(p)
+    db.flush()
+    # Second in-stock item so the stock counter matches the actual items
+    # (stock is derived from in_stock PartItems).
+    db.add(
+        PartItem(
+            id=str(uuid.uuid4()),
+            part_id=p.id,
+            sn="DISK-SN-EXTRA",
+            location=p.location,
+            status="in_stock",
+        )
+    )
     db.flush()
     return p
 

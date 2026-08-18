@@ -168,7 +168,9 @@ export function MovementForm({ open, defaultType, parts, servers, onClose, onSub
       await onSubmit({
         partId: v.partId,
         type: v.type,
-        quantity: v.quantity,
+        // When SNs are pasted, the actual item count wins — the quantity
+        // field must not desync from the items being created.
+        quantity: sns.length > 0 ? sns.length : v.quantity,
         operator: v.operator,
         partItemId: undefined,
         partItemIds: [],

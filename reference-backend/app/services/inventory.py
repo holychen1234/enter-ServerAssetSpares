@@ -7,6 +7,7 @@ from app.db.models import AuditLog, Part, PartItem, StockMovement
 
 def _sync_stock(db: Session, part: Part) -> None:
     """Derive Part.stock from in_stock PartItem count."""
+    db.flush()  # make sure pending PartItems are visible to the COUNT below
     count = (
         db.query(PartItem)
         .filter(PartItem.part_id == part.id, PartItem.status == "in_stock")
@@ -21,7 +22,9 @@ def apply_movement(db: Session, payload, operator: str) -> StockMovement:
         raise ValueError("备件不存在")
 
     if payload.type == "inbound":
-        # Create PartItems if item data provided, then bump stock
+        # Create PartItems for each SN. When the caller only supplies a
+        # quantity (no SNs), create placeholder items without SN so the
+        # ledger and the stock both reflect the actual items.
         items_data: list[dict] = getattr(payload, "items", None) or []
         for item_data in items_data:
             it = PartItem(
@@ -32,9 +35,20 @@ def apply_movement(db: Session, payload, operator: str) -> StockMovement:
                 status="in_stock",
             )
             db.add(it)
-        part.stock += payload.quantity
-        if part.stock < 0:
-            raise ValueError("库存不足")
+        for _ in range(max(0, payload.quantity - len(items_data))):
+            db.add(
+                PartItem(
+                    id=str(uuid.uuid4()),
+                    part_id=part.id,
+                    sn=None,
+                    location=part.location,
+                    status="in_stock",
+                )
+            )
+        # Always derive stock from the actual in_stock item count — never
+        # bump the counter directly, otherwise stock drifts from reality
+        # when quantity != len(items).
+        _sync_stock(db, part)
 
         mv = StockMovement(
             id=str(uuid.uuid4()),
